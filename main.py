@@ -7,11 +7,81 @@ from itertools import groupby
 import numpy as np
 
 
-# TODO: fixup typo in API
-# TODO: check what 'number' means in feature extractor
 
 
-# TODO: set correct parameter values
+class model():
+
+    def __init__(self):
+
+        self.params= get_gnn_params()
+        self.gnn_model = SparseGGNN(self.params)
+        self.graph = tf.Graph()
+        self.sess = tf.Session(graph=self.graph)
+        self.placeholders = {}
+        self.weights = {}
+        self.ops = {}
+        self.make_model()
+
+
+
+
+    def make_model(self):
+
+        h_dim = self.params['hidden_size']
+        self.num_edge_types=10
+
+        self.placeholders['var_name'] = tf.placeholder(tf.float32, [1, 1, 20], name='train_label')
+
+        self.placeholders['node_token_ids'] = tf.placeholder(tf.float32, [None, h_dim],
+                                                                          name='node_features')
+        self.placeholders['adjacency_lists'] = [tf.placeholder(tf.int32, [None, 2], name='adjacency_e%s' % e)
+                                                for e in range(self.num_edge_types)]
+        self.placeholders['num_incoming_edges_per_type'] = tf.placeholder(tf.float32, [None, self.num_edge_types],
+                                                                          name='num_incoming_edges_per_type')
+
+        self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [None, 1], name='slot_tokens')
+
+
+        # self.placeholders['initial_node_representation'] = tf.keras.layers.Embedding(self.placeholders['node_token_ids'].shape, )
+
+
+        self.placeholders['gnn_reps'] = self.gnn_model.sparse_gnn_layer(1.0,
+                                                                        self.placeholders['initial_node_representation'],
+                                                                        self.placeholders['adjacency_lists'],
+                                                                        self.placeholders['num_incoming_edges_per_type'],
+                                                                        self.placeholders['num_incoming_edges_per_type'],
+                                                                        {})
+
+
+        self.placeholders['avg_reps'] = tf.expand_dims(tf.reduce_mean(tf.gather(self.placeholders['gnn_reps'],
+                                                                                self.placeholders['slot_ids']), axis=0), 0)
+
+        self.gru_layer = tf.keras.layers.GRU(20, activation='relu', return_sequences=True)
+
+        self.placeholders['output_seq'] = self.gru_layer(self.placeholders['avg_reps'])
+
+
+
+        self.ops['loss'] = tf.reduce_mean(tf.squared_difference(self.placeholders['var_name'], self.placeholders['output_seq']))
+        my_opt = tf.train.GradientDescentOptimizer(learning_rate=0.02)
+        self.train_step = my_opt.minimize(self.ops['loss'])
+
+
+
+    def train(self, graph_samples):
+
+        n_samples = 10
+
+        for iteration in range(100):
+            for sample in range(n_samples):
+
+                graph = graph_samples[sample]
+                loss = self.sess.run([self.ops['loss'], self.train_step], feed_dict=graph)
+                print("Loss=", loss)
+
+
+
+
 def get_gnn_params():
 
     gnn_params = {}
@@ -21,30 +91,15 @@ def get_gnn_params():
     gnn_params["add_backwards_edges"] = True
     gnn_params["message_aggregation_type"] = "sum"
     gnn_params["layer_timesteps"] = [8]
-    gnn_params["use_propagation_attention"] = True
-    gnn_params["use_edge_bias"] = True
+    gnn_params["use_propagation_attention"] = False
+    gnn_params["use_edge_bias"] = False
     gnn_params["graph_rnn_activation"] = "relu"
     gnn_params["graph_rnn_cell"] = "gru"
-    gnn_params["residual_connections"] = None  #
-    gnn_params["use_edge_msg_avg_aggregation"] = True
+    gnn_params["residual_connections"] = {}  #
+    gnn_params["use_edge_msg_avg_aggregation"] = False
 
     return gnn_params
 
-
-
-'''
-Nodes:
-FAKE_AST, SYMBOL, SYMBOL_TYP, SYMBOL_VAR, SYMBOL_MTH, COMMENT_LINE, COMMENT_BLOCK, COMMENT_JAVADOC ?
-
-Used Node Types: TOKEN, AST_ELEMENT, IDENTIFIER_TOKEN
-
-
-Edges:
-ASSOCIATED_TOKEN, NONE, COMMENT
-
-Used Edge Types: NEXT_TOKEN, AST_CHILD, LAST_WRITE, LAST_USE, COMPUTED_FROM, RETURNS_TO, FORMAL_ARG_NAME, GUARDED_BY,
-GUARDED_BY_NEGATION, LAST_LEXICAL_USE, 
-'''
 
 
 
@@ -59,10 +114,6 @@ def compute_adjacency_lists(graph) -> List[tf.Tensor]:
 
     return adjacency_tensors
 
-
-# TODO: compute initial node embeddings
-def compute_initial_node_embeddings(graph) -> tf.Tensor:
-    return None
 
 
 # TODO: compute incoming/outgoing edges per type
@@ -85,50 +136,27 @@ def compute_edges_per_type(graph, incoming=True) -> tf.Tensor:
 
 
 
-# TODO: compute edge features
-def compute_edge_features(graph) -> Dict[int, tf.Tensor]:
-    return None
 
 
-
-# TODO: run VarNaming task
-def run_varnaming(graph, ggnn_model, var_name):
-
-    # Replace var_name with <SLOT> token in graph
-    # Run ggnn on graph
-    # Average variable usages
-    # Run through graph2seq to get variable name
-
-    return None
 
 
 
 def main(path):
-
-  # Create sparse GGNN model
-  gnn_params = get_gnn_params()
-  ggnn = SparseGGNN(gnn_params)
-
-  # TODO: load processed source code repository
-  # TODO: split into training/test set
-  # TODO: filter out unneeded nodes/edges if necessary
-  # TODO: compute type embedding
 
   with open(path, "rb") as f:
 
     g = Graph()
     g.ParseFromString(f.read())
 
-    dropout_keep_rate = 1.0
-    node_embeddings=compute_initial_node_embeddings(g)
-    adjacency_lists=compute_adjacency_lists(g)
-    num_incoming_edges_per_type=compute_edges_per_type(g)
-    num_outgoing_edges_per_type=compute_edges_per_type(g, False)
-    edge_features=compute_edge_features(g)
+    # dropout_keep_rate = 1.0
+    # node_embeddings=compute_initial_node_embeddings(g)
+    # adjacency_lists=compute_adjacency_lists(g)
+    # num_incoming_edges_per_type=compute_edges_per_type(g)
+    # num_outgoing_edges_per_type=compute_edges_per_type(g, False)
+    # edge_features=compute_edge_features(g)
 
-    node_usages = ggnn.sparse_gnn_layer(dropout_keep_rate, node_embeddings, adjacency_lists,
-                        num_incoming_edges_per_type, num_outgoing_edges_per_type, edge_features)
 
+    m = model()
 
 
 
@@ -140,6 +168,19 @@ main("/Users/AdminDK/Dropbox/Part III Modules/R252 Machine Learning "
 
 
 
+'''
+Nodes:
+FAKE_AST, SYMBOL, SYMBOL_TYP, SYMBOL_VAR, SYMBOL_MTH, COMMENT_LINE, COMMENT_BLOCK, COMMENT_JAVADOC ?
+
+Used Node Types: TOKEN, AST_ELEMENT, IDENTIFIER_TOKEN
+
+
+Edges:
+ASSOCIATED_TOKEN, NONE, COMMENT
+
+Used Edge Types: NEXT_TOKEN, AST_CHILD, LAST_WRITE, LAST_USE, COMPUTED_FROM, RETURNS_TO, FORMAL_ARG_NAME, GUARDED_BY,
+GUARDED_BY_NEGATION, LAST_LEXICAL_USE, 
+'''
 
 
 
