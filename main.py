@@ -19,12 +19,12 @@ class model():
         self.sess = tf.Session(graph=self.graph)
 
         with self.graph.as_default():
-            self.gnn_model = SparseGGNN(self.params)
+            self.embedding_size = 64
             self.placeholders = {}
             self.weights = {}
             self.ops = {}
             self.make_model()
-
+            self.make_train_step()
             init_op = tf.group(tf.global_variables_initializer(),
                                tf.local_variables_initializer())
             self.sess.run(init_op)
@@ -34,11 +34,8 @@ class model():
 
         h_dim = self.params['hidden_size']
 
-        # Actual variable name, as a padded sequence of tokens
-        self.placeholders['var_name'] = tf.placeholder(tf.float32, [1, 1, 20], name='train_label')
-
         # Padded graph node sub-token sequences
-        self.placeholders['node_token_ids'] = tf.placeholder(tf.float32, [None, h_dim],
+        self.placeholders['node_token_ids'] = tf.placeholder(tf.int32, [None, h_dim],
                                                                           name='node_features')
 
         # Graph adjacency lists
@@ -52,19 +49,21 @@ class model():
         # Node identifiers of all graph nodes of the target variable
         self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [None], name='slot_tokens')
 
-
+        # Actual variable name, as a padded sequence of tokens
+        self.decoder_targets = tf.placeholder(tf.int32, [None, None], name='train_label')
+        self.decoder_targets_length = tf.placeholder(shape = (None,), dtype = tf.int32, name = 'decoder_targets_length')
 
         # Compute the embedding of input node sub-tokens
-        self.embedding_layer = tf.keras.layers.Embedding(self.voc_size, h_dim,  trainable=True)
-        self.placeholders['initial_node_representation'] = self.embedding_layer(self.placeholders['node_token_ids'])
+        self.embedding_encoder = tf.Variable(tf.random_uniform([self.voc_size, self.embedding_size]))
+        self.embedding_inputs = tf.nn.embedding_lookup(self.embedding_encoder, self.placeholders['node_token_ids'])
 
 
         # Average the sub-token embeddings for every node
-        self.placeholders['averaged_initial_representation'] = tf.reduce_mean(self.placeholders['initial_node_representation'],
+        self.placeholders['averaged_initial_representation'] = tf.reduce_mean(self.embedding_inputs,
                                                                               axis=1)
 
-
         # Run graph through GGNN
+        self.gnn_model = SparseGGNN(self.params)
         self.placeholders['gnn_reps'] = self.gnn_model.sparse_gnn_layer(1.0,
                                                                         self.placeholders['averaged_initial_representation'],
                                                                         self.placeholders['adjacency_lists'],
@@ -73,22 +72,49 @@ class model():
                                                                         {})
 
 
-
         # Compute average of <SLOT> usage representations
-        self.placeholders['avg_reps'] = tf.expand_dims(tf.expand_dims(tf.reduce_mean(tf.gather(self.placeholders['gnn_reps'],
-                                                                                self.placeholders['slot_ids']), axis=0), 0), 0)
+        self.placeholders['avg_reps'] = tf.expand_dims(tf.reduce_mean(tf.gather(self.placeholders['gnn_reps'],
+                                                                                self.placeholders['slot_ids']), axis=0), 0)
 
+        self.target_mask = tf.placeholder(tf.float32, [None, None], name='train_label')
 
         # Obtain output sequence by passing through a single GRU layer
-        self.gru_layer = tf.keras.layers.GRU(20, activation='relu', return_sequences=True, trainable=True)
-        self.placeholders['output_seq'] = self.gru_layer(self.placeholders['avg_reps'])
+        self.decoder_targets_length = tf.placeholder(shape=(None,), dtype=tf.int32,name='decoder_targets_length')
+        self.embedding_decoder = tf.Variable(tf.random_uniform([self.voc_size, self.embedding_size]))
+        self.decoder_embedding_inputs = tf.nn.embedding_lookup(self.embedding_decoder, self.decoder_targets)
+
+        decoder_cell = tf.nn.rnn_cell.GRUCell(self.params['hidden_size'])
+        initial_state = self.placeholders['avg_reps']
+        projection_layer = tf.layers.Dense(self.voc_size, use_bias=False)
+
+        helper = tf.contrib.seq2seq.TrainingHelper(self.decoder_embedding_inputs, self.decoder_targets_length)
+        decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell, helper, initial_state=initial_state, output_layer=projection_layer)
+
+        self.decoder_outputs_train, _, _ = tf.contrib.seq2seq.dynamic_decode(decoder)
+        self.decoder_logits_train = self.decoder_outputs_train.rnn_output
+
+        crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.decoder_targets, logits=self.decoder_logits_train)
+        loss = tf.reduce_sum(self.target_mask * crossent)
+
+        global_step = tf.Variable(0, name='global_step', trainable=False)
+
+        # Calculate and clip gradients
+        params = tf.trainable_variables()
+        gradients = tf.gradients(loss, params)
+        clipped_gradients, _ = tf.clip_by_global_norm(
+            gradients, 5.0)
+
+        # Optimization
+        optimizer = tf.train.AdamOptimizer(0.01)
+        train_op = optimizer.apply_gradients(
+            zip(clipped_gradients, params), global_step=global_step)
 
 
+        print("Model built successfully...")
 
-        # TODO: compute loss and optimizers properly (use maximum-likelihood objective)
-        self.ops['loss'] = tf.reduce_mean(tf.squared_difference(self.placeholders['var_name'], self.placeholders['output_seq']))
-        my_opt = tf.train.AdamOptimizer(learning_rate=0.02)
-        self.train_step = my_opt.minimize(self.ops['loss'])
+
+        # TODO: Add inference code to GRU layer for predictions
+
 
 
 
@@ -105,6 +131,8 @@ class model():
             n_samples = len(graph_samples)
 
             for iteration in range(20):
+
+                # Run one sample at a time
                 for sample in range(n_samples):
 
                     graph = graph_samples[sample]
@@ -115,6 +143,7 @@ class model():
 
     def sample_train(self):
 
+        # Sample graph
         graph_sample = {
             self.placeholders['var_name']: np.ones((1, 1, 20), dtype=np.float32),
             self.placeholders['node_token_ids']: np.zeros((3, 64)),
