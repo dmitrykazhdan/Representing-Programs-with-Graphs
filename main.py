@@ -5,6 +5,7 @@ from dpu_utils.tfmodels import SparseGGNN
 from typing import List, Optional, Dict, Any
 from itertools import groupby
 import numpy as np
+import os
 
 
 
@@ -20,15 +21,12 @@ class model():
         self.mode = 'train'
 
         with self.graph.as_default():
-            self.embedding_size = 64
+            self.embedding_size = self.params['hidden_size']
             self.placeholders = {}
-            self.weights = {}
-            self.ops = {}
             self.make_model()
             self.make_train_step()
 
-            init_op = tf.group(tf.global_variables_initializer(),
-                               tf.local_variables_initializer())
+            init_op = tf.group(tf.global_variables_initializer(),tf.local_variables_initializer())
             self.sess.run(init_op)
 
 
@@ -42,7 +40,7 @@ class model():
         self.make_inputs()
 
         # Compute the embedding of input node sub-tokens
-        self.embedding_encoder = tf.Variable(tf.random_uniform([self.voc_size, self.embedding_size]))
+        self.embedding_encoder = tf.get_variable('embedding_encoder', [self.voc_size, self.embedding_size])
         self.embedding_inputs = tf.nn.embedding_lookup(self.embedding_encoder, self.placeholders['node_token_ids'])
 
         # Average the sub-token embeddings for every node
@@ -63,7 +61,7 @@ class model():
 
 
         # Obtain output sequence by passing through a single GRU layer
-        self.embedding_decoder = tf.Variable(tf.random_uniform([self.voc_size, self.embedding_size]))
+        self.embedding_decoder = tf.get_variable('embedding_decoder', [self.voc_size, self.embedding_size])
         self.decoder_embedding_inputs = tf.nn.embedding_lookup(self.embedding_decoder, self.placeholders['decoder_targets'])
         self.decoder_cell = tf.nn.rnn_cell.GRUCell(self.params['hidden_size'])
         self.decoder_initial_state = self.placeholders['avg_representation']
@@ -87,7 +85,7 @@ class model():
             self.decoder_logits_train = self.decoder_outputs_train.rnn_output
 
 
-        else:
+        elif self.mode == 'infer':
 
             # Define inference sequence decoder
             start_tokens = tf.tile(tf.constant([0], dtype=tf.int32), [self.batch_size])
@@ -107,6 +105,9 @@ class model():
 
             self.predictions = self.outputs_inference.sample_id
 
+
+        else:
+            raise ValueError("Invalid mode. Please specify \'train\' or \'infer\'...")
 
 
         print ("Model built successfully...")
@@ -139,17 +140,10 @@ class model():
 
 
 
-
-    # TODO: fill in method
     def make_train_step(self):
-
-
-        print(self.placeholders['decoder_targets'].shape)
-        print(self.decoder_logits_train.shape)
 
         self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'], logits=self.decoder_logits_train)
         self.train_loss = tf.reduce_sum(self.placeholders['target_mask'] * self.crossent)
-        self.global_step = tf.Variable(0, name='global_step', trainable=False)
 
         # Calculate and clip gradients
         self.train_vars = tf.trainable_variables()
@@ -167,16 +161,13 @@ class model():
 
         with self.graph.as_default():
 
-            n_samples = len(graph_samples)
-
             for iteration in range(100):
 
                 # Run one sample at a time
-                for sample in range(n_samples):
+                for graph in graph_samples:
 
-                    graph = graph_samples[sample]
                     loss = self.sess.run([self.train_loss, self.train_step], feed_dict=graph)
-                    print("Loss=", loss)
+                    print("Loss:", loss)
 
 
 
@@ -210,7 +201,7 @@ def get_gnn_params():
     gnn_params["n_edge_types"] = 10
     gnn_params["hidden_size"] = 64
     gnn_params["edge_features_size"] = {}  # Dict from edge type to feature size
-    gnn_params["add_backwards_edges"] = False
+    gnn_params["add_backwards_edges"] = True
     gnn_params["message_aggregation_type"] = "sum"
     gnn_params["layer_timesteps"] = [8]
     gnn_params["use_propagation_attention"] = False
@@ -223,20 +214,18 @@ def get_gnn_params():
     return gnn_params
 
 
-# TODO: retrieve adjacency list, given graph
-def compute_adjacency_lists(graph) -> List[tf.Tensor]:
+
+def compute_adjacency_lists(graph):
 
     sorted_edges = sorted(graph.edge, key=lambda x: (int(x.type), int(x.sourceId), int(x.destinationId)), reverse=False)
     grouped = [list(g) for k, g in groupby(sorted_edges, lambda x: x.type)]
     adjacency_tensors = [[[x.sourceId, x.destinationId] for x in group] for group in grouped]
-    adjacency_tensors = [tf.convert_to_tensor(np.asarray(data, np.int64), np.int64) for data in adjacency_tensors]
+    adjacency_tensors = [np.asarray(data, np.int64) for data in adjacency_tensors]
 
     return adjacency_tensors
 
 
-
-# TODO: compute incoming/outgoing edges per type
-def compute_edges_per_type(graph, incoming=True) -> tf.Tensor:
+def compute_edges_per_type(graph, incoming=True):
 
     # n_nodes = ... #TODO: ensure ids are consecutive
 
@@ -248,8 +237,6 @@ def compute_edges_per_type(graph, incoming=True) -> tf.Tensor:
         for e in graph.edge: edges_matrix[e.destinationId, e.type] += 1
     else:
         for e in graph.edge: edges_matrix[e.sourceId, e.type] += 1
-
-    edges_matrix = tf.convert_to_tensor(edges_matrix, np.int64)
 
     return edges_matrix
 
