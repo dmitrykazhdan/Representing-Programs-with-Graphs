@@ -2,6 +2,8 @@ import tensorflow as tf
 from graph_pb2 import Graph
 from graph_pb2 import FeatureNode
 from dpu_utils.tfmodels import SparseGGNN
+from dpu_utils.codeutils import split_identifier_into_parts
+from dpu_utils.mlutils import Vocabulary
 from typing import List, Optional, Dict, Any
 from itertools import groupby
 import numpy as np
@@ -239,6 +241,29 @@ def compute_edges_per_type(graph, incoming=True):
         for e in graph.edge: edges_matrix[e.sourceId, e.type] += 1
 
     return edges_matrix
+
+
+
+
+def compute_initial_node_representation(graph):
+
+    # Extract set of all sub-tokens and create their vocabulary
+    all_tokens = []
+
+    for n in graph.node:
+        all_tokens += split_identifier_into_parts(n.contents)
+    all_tokens = list(set(all_tokens))
+
+    vocabulary = Vocabulary.create_vocabulary(all_tokens, max_size=100, count_threshold=0, add_unk=True)
+    max_size = 50
+    padding_element = 0
+
+    node_representations = np.array([vocabulary.get_id_or_unk_multiple(split_identifier_into_parts(node.contents), max_size, padding_element)
+                            for node in graph.node])
+
+    return node_representations
+
+
 
 
 
