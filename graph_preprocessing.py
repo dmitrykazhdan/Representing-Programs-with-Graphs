@@ -7,8 +7,7 @@ from dpu_utils.codeutils import split_identifier_into_parts
 # Filter out nodes/edges from graph
 def filter_graph(graph):
 
-    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN,
-                       FeatureNode.FAKE_AST, FeatureNode.SYMBOL, FeatureNode.SYMBOL_VAR]
+    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN]
 
     used_edge_types = [FeatureEdge.NEXT_TOKEN, FeatureEdge.AST_CHILD, FeatureEdge.LAST_WRITE,
                        FeatureEdge.LAST_USE, FeatureEdge.COMPUTED_FROM, FeatureEdge.RETURNS_TO,
@@ -53,6 +52,7 @@ def get_var_nodes_map(graph, id_to_index_map):
     # Extract node ids of all symbol variable nodes
     symbol_var_node_ids = [node.id for node in graph.node if node.type == FeatureNode.SYMBOL_VAR]
 
+
     # Assume all identifier nodes are direct descendants of a symbol variable node
     for edge in graph.edge:
         if edge.sourceId in symbol_var_node_ids and edge.destinationId in identifier_token_node_ids:
@@ -87,27 +87,30 @@ def compute_adjacency_lists(edges, id_to_index_map):
                        for edge_type, adj_list in adj_lists.items()}
 
 
-    print("types: ", len(final_adj_lists))
-
     return final_adj_lists
 
 
 
 
 
-# def compute_edges_per_type(graph, incoming=True):
-#
-#     # n_nodes = ... #TODO: ensure ids are consecutive
-#
-#     # TODO: assumes node ids range from 0 to n_nodes. Ensure this assumption actually holds
-#     n_nodes, n_edge_types = 10, 5
-#     edges_matrix = np.zeros((n_nodes, n_edge_types), np.int64)
-#
-#     if incoming:
-#         for e in graph.edge: edges_matrix[e.destinationId, e.type] += 1
-#     else:
-#         for e in graph.edge: edges_matrix[e.sourceId, e.type] += 1
-#
-#     return edges_matrix
+def compute_edges_per_type(n_nodes, adj_lists):
+
+    n_types = len(adj_lists)
+
+    num_incoming_edges_per_type = np.zeros((n_nodes, n_types))
+    num_outgoing_edges_per_type = np.zeros((n_nodes, n_types))
+
+    i = 0
+
+    for edge_type in adj_lists:
+
+        adj_list = adj_lists[edge_type]
+
+        for edge in adj_list:
+            num_incoming_edges_per_type[edge[1], i] += 1
+            num_outgoing_edges_per_type[edge[0], i] += 1
+
+        i += 1
 
 
+    return num_incoming_edges_per_type, num_outgoing_edges_per_type

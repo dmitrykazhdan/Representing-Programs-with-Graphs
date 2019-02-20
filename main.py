@@ -19,7 +19,7 @@ class model():
 
         self.params = self.get_gnn_params()
 
-        self.seq_length = 16
+        self.seq_length = 12
 
         self.vocabulary = vocabulary
         self.voc_size = len(vocabulary)
@@ -46,8 +46,6 @@ class model():
 
 
     # TODO: Add batched iteration
-    # TODO: Consider other ways of handling variable-length sequences, besides padding
-
 
     def make_inputs(self):
 
@@ -57,8 +55,10 @@ class model():
         # Graph adjacency lists
         self.placeholders['adjacency_lists'] = [tf.placeholder(tf.int32, [None, 2]) for _ in range(self.params['n_edge_types'])]
 
-        # Graph of incoming edges per type
+        # Graph of incoming/outgoing edges per type
         self.placeholders['num_incoming_edges_per_type'] = tf.placeholder(tf.float32, [None, self.params['n_edge_types']])
+        self.placeholders['num_outgoing_edges_per_type'] = tf.placeholder(tf.float32, [None, self.params['n_edge_types']])
+
 
         # Node identifiers of all graph nodes of the target variable
         self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [None], name='slot_tokens')
@@ -94,7 +94,7 @@ class model():
                                                                         self.placeholders['averaged_initial_representation'],
                                                                         self.placeholders['adjacency_lists'],
                                                                         self.placeholders['num_incoming_edges_per_type'],
-                                                                        self.placeholders['num_incoming_edges_per_type'],
+                                                                        self.placeholders['num_outgoing_edges_per_type'],
                                                                         {})
 
         # Compute average of <SLOT> usage representations
@@ -113,6 +113,7 @@ class model():
 
             self.decoder_embedding_inputs = tf.nn.embedding_lookup(self.embedding_decoder,
                                                                    self.placeholders['decoder_inputs'])
+
             # Define training sequence decoder
             self.train_helper = tf.contrib.seq2seq.TrainingHelper(self.decoder_embedding_inputs,
                                                                   self.placeholders['decoder_targets_length']
@@ -131,7 +132,7 @@ class model():
             # Define inference sequence decoder
             start_tokens = tf.fill([self.batch_size], self.sos_token)
             end_token = self.pad_token
-            max_iterations = self.seq_length * 2
+            max_iterations = self.seq_length
 
             self.inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.embedding_decoder,
                                                               start_tokens=start_tokens, end_token=end_token)
@@ -160,6 +161,7 @@ class model():
         self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'], logits=self.decoder_logits_train)
         self.train_loss = tf.reduce_sum(self.crossent * self.placeholders['target_mask'])
 
+
         # Calculate and clip gradients
         self.train_vars = tf.trainable_variables()
         self.gradients = tf.gradients(self.train_loss, self.train_vars)
@@ -174,14 +176,14 @@ class model():
     def get_gnn_params(self):
 
         gnn_params = {}
-        gnn_params["n_edge_types"] = 8
+        gnn_params["n_edge_types"] = 5
         gnn_params["hidden_size"] = 64
         gnn_params["edge_features_size"] = {}  # Dict from edge type to feature size
         gnn_params["add_backwards_edges"] = True
         gnn_params["message_aggregation_type"] = "sum"
         gnn_params["layer_timesteps"] = [8]
-        gnn_params["use_propagation_attention"] = False
-        gnn_params["use_edge_bias"] = False
+        gnn_params["use_propagation_attention"] = True
+        gnn_params["use_edge_bias"] = True
         gnn_params["graph_rnn_activation"] = "relu"
         gnn_params["graph_rnn_cell"] = "gru"
         gnn_params["residual_connections"] = {}  #
@@ -192,7 +194,7 @@ class model():
 
 
 
-    def create_sample(self, variable_node_ids, node_representation, adj_lists):
+    def create_sample(self, variable_node_ids, node_representation, adj_lists, incoming_edges, outgoing_edges):
 
         node_rep_copy = node_representation.copy()
 
@@ -223,7 +225,6 @@ class model():
             decoder_targets = variable_representation.copy()
             decoder_targets = decoder_targets.reshape(1, self.seq_length)
 
-
         elif self.mode == 'infer':
 
             decoder_inputs = np.zeros((self.seq_length, 1))
@@ -233,10 +234,8 @@ class model():
         # Create the sample graph
         graph_sample = {
             self.placeholders['node_token_ids']: node_rep_copy,
-            self.placeholders['num_incoming_edges_per_type']: np.zeros((node_representation.shape[0],
-                                                                        self.params['n_edge_types']),
-                                                                       dtype=np.float32),
-
+            self.placeholders['num_incoming_edges_per_type']: incoming_edges,
+            self.placeholders['num_outgoing_edges_per_type']: outgoing_edges,
             self.placeholders['slot_ids']: variable_node_ids,
             self.placeholders['decoder_targets']: decoder_targets,
             self.placeholders['decoder_inputs']: decoder_inputs,
@@ -265,17 +264,25 @@ class model():
             filtered_nodes, filtered_edges = graph_preprocessing.filter_graph(g)
 
             id_to_index_map = graph_preprocessing.get_node_id_to_index_map(filtered_nodes)
+
             variable_node_ids = graph_preprocessing.get_var_nodes_map(g, id_to_index_map)
+
             adjacency_lists = graph_preprocessing.compute_adjacency_lists(filtered_edges, id_to_index_map)
+
             node_representations = graph_preprocessing.compute_initial_node_representation(filtered_nodes, self.seq_length,
                                                                                            self.pad_token, self.vocabulary)
+
+            incoming_edges_per_type, outgoing_edges_per_type = \
+                graph_preprocessing.compute_edges_per_type(len(node_representations), adjacency_lists)
+
 
             samples, labels = [], []
 
             for variable_root_id in variable_node_ids:
 
                 new_sample, new_label = self.create_sample(variable_node_ids[variable_root_id],
-                                                           node_representations, adjacency_lists)
+                                                           node_representations, adjacency_lists,
+                                                           incoming_edges_per_type, outgoing_edges_per_type)
 
                 samples.append(new_sample)
                 labels.append(new_label)
@@ -302,10 +309,11 @@ class model():
         return graph_samples, labels
 
 
+
     def train(self, corpus_path):
 
         train_samples, _ = self.get_samples(corpus_path)
-        n_epochs = 10
+        n_epochs = 100
 
         with self.graph.as_default():
 
