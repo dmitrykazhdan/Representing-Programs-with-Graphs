@@ -1,6 +1,6 @@
 import tensorflow as tf
 from graph_pb2 import Graph
-from graph_pb2 import FeatureNode
+from graph_pb2 import FeatureNode, FeatureEdge
 from dpu_utils.tfmodels import SparseGGNN
 from dpu_utils.codeutils import split_identifier_into_parts
 from dpu_utils.mlutils import Vocabulary
@@ -17,10 +17,12 @@ class model():
 
     def __init__(self, mode, vocabulary):
 
-        self.checkpoint_path = "/Users/AdminDK/Dropbox/Part III Modules/R252 Machine Learning for Programming/Project/checkpoint/train.ckpt"
+        self.checkpoint_path = "/Users/AdminDK/Dropbox/Part III Modules/R252 Machine Learning " \
+                               "for Programming/Project/checkpoint/train.ckpt"
+
         self.params = self.get_gnn_params()
 
-        self.seq_length = 32
+        self.seq_length = 8
 
         self.vocabulary = vocabulary
         self.voc_size = len(vocabulary)
@@ -45,8 +47,6 @@ class model():
             self.sess.run(init_op)
 
 
-
-    # TODO: Add type embeddings
     # TODO: Add batched iteration
     # TODO: Consider other ways of handling variable-length sequences, besides padding
 
@@ -78,6 +78,7 @@ class model():
         self.placeholders['target_mask'] = tf.placeholder(tf.float32, [None, None])
 
 
+
     def make_model(self):
 
         self.make_inputs()
@@ -102,13 +103,11 @@ class model():
         self.placeholders['avg_representation'] = tf.expand_dims(tf.reduce_mean(tf.gather(self.placeholders['gnn_representation'],
                                                                                 self.placeholders['slot_ids']), axis=0), 0)
 
-
         # Obtain output sequence by passing through a single GRU layer
         self.embedding_decoder = tf.get_variable('embedding_decoder', [self.voc_size, self.embedding_size])
         self.decoder_embedding_inputs = tf.nn.embedding_lookup(self.embedding_decoder, self.placeholders['decoder_inputs'])
         self.decoder_cell = tf.nn.rnn_cell.GRUCell(self.params['hidden_size'])
         self.decoder_initial_state = self.placeholders['avg_representation']
-
 
         self.projection_layer = tf.layers.Dense(self.voc_size, use_bias=False)
 
@@ -132,7 +131,7 @@ class model():
 
             # Define inference sequence decoder
             start_tokens = tf.fill([self.batch_size], self.sos_token)
-            end_token = self.eos_token
+            end_token = self.vocabulary.get_id_or_unk(self.vocabulary.get_pad())
             max_iterations = self.seq_length * 2
 
             self.inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.embedding_decoder,
@@ -159,12 +158,12 @@ class model():
     def make_train_step(self):
 
         self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'], logits=self.decoder_logits_train)
-        self.train_loss = tf.reduce_sum(self.crossent)
+        self.train_loss = tf.reduce_sum(self.crossent * self.placeholders['target_mask'])
 
         # Calculate and clip gradients
         self.train_vars = tf.trainable_variables()
         self.gradients = tf.gradients(self.train_loss, self.train_vars)
-        self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, 1.0)
+        self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, 5.0)
 
         # Optimization
         self.optimizer = tf.train.AdamOptimizer(0.01)
@@ -175,7 +174,7 @@ class model():
     def get_gnn_params(self):
 
         gnn_params = {}
-        gnn_params["n_edge_types"] = 11
+        gnn_params["n_edge_types"] = 8
         gnn_params["hidden_size"] = 64
         gnn_params["edge_features_size"] = {}  # Dict from edge type to feature size
         gnn_params["add_backwards_edges"] = True
@@ -190,19 +189,6 @@ class model():
 
         return gnn_params
 
-
-    def compute_adjacency_lists(self, graph, id_to_ind):
-
-        adj_lists = defaultdict(list)
-
-        for edge in graph.edge:
-            type_id = edge.type - 1
-            adj_lists[type_id].append([id_to_ind[edge.sourceId], id_to_ind[edge.destinationId]])
-
-        final_adj_lists = {edge_type: np.array(sorted(adj_list), dtype=np.int32)
-                           for edge_type, adj_list in adj_lists.items()}
-
-        return final_adj_lists
 
 
 
@@ -223,14 +209,31 @@ class model():
 
 
 
-    def compute_initial_node_representation(self, graph):
+    def compute_adjacency_lists(self, edges, id_to_ind):
+
+        adj_lists = defaultdict(list)
+
+        for edge in edges:
+            type_id = edge.type - 1
+            adj_lists[type_id].append([id_to_ind[edge.sourceId], id_to_ind[edge.destinationId]])
+
+        final_adj_lists = {edge_type: np.array(sorted(adj_list), dtype=np.int32)
+                           for edge_type, adj_list in adj_lists.items()}
+
+
+        print("types: ", len(final_adj_lists))
+
+        return final_adj_lists
+
+
+    def compute_initial_node_representation(self, nodes):
 
         max_size = self.seq_length
         padding_element = self.vocabulary.get_id_or_unk(self.vocabulary.get_pad())
 
         node_representations = np.array([self.vocabulary.get_id_or_unk_multiple(split_identifier_into_parts(node.contents),
                                                                            max_size, padding_element)
-                                                                            for node in graph.node])
+                                                                            for node in nodes])
 
         return node_representations
 
@@ -238,34 +241,61 @@ class model():
 
     def get_var_nodes(self, graph, id_to_ind):
 
-        var_nodes = {}
+        var_nodes = defaultdict(list)
 
-        id_nodes = [id_to_ind[node.id] for node in graph.node if node.type == FeatureNode.IDENTIFIER_TOKEN]
+        id_nodes = [node.id for node in graph.node if node.type == FeatureNode.IDENTIFIER_TOKEN]
+        sym_nodes = [node.id for node in graph.node if node.type == FeatureNode.SYMBOL_VAR]
 
 
-        for node in graph.node:
-            if node.type == FeatureNode.SYMBOL_VAR:
-                var_nodes[id_to_ind[node.id]] = []
+        # for n in graph.node:
+        #     if n.type == FeatureNode.SYMBOL_VAR:
+        #         print("Variable: ", n.contents)
 
 
         for edge in graph.edge:
-            if id_to_ind[edge.sourceId] in var_nodes and id_to_ind[edge.destinationId] in id_nodes:
-                var_nodes[id_to_ind[edge.sourceId]].append(id_to_ind[edge.destinationId])
+            if edge.sourceId in sym_nodes and edge.destinationId in id_nodes:
+                var_nodes[edge.sourceId].append(id_to_ind[edge.destinationId])
 
         return var_nodes
 
 
 
-    def __get_id_to_int_mapping(self, graph):
+    def __get_id_to_int_mapping(self, nodes):
 
         id_to_ind = {}
 
         ind = 0
-        for node in graph.node:
+        for node in nodes:
             id_to_ind[node.id] = ind
             ind += 1
 
         return id_to_ind
+
+
+
+    def filter_graph(self, graph):
+
+        used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.COMMENT_LINE,
+                           FeatureNode.COMMENT_BLOCK, FeatureNode.COMMENT_JAVADOC, FeatureNode.IDENTIFIER_TOKEN,
+                           FeatureNode.FAKE_AST, FeatureNode.SYMBOL, FeatureNode.SYMBOL_TYP,
+                           FeatureNode.SYMBOL_VAR, FeatureNode.SYMBOL_MTH]
+
+        used_edge_types = [FeatureEdge.NEXT_TOKEN, FeatureEdge.AST_CHILD, FeatureEdge.LAST_WRITE,
+                           FeatureEdge.LAST_USE, FeatureEdge.COMPUTED_FROM, FeatureEdge.RETURNS_TO,
+                           FeatureEdge.FORMAL_ARG_NAME, FeatureEdge.GUARDED_BY, FeatureEdge.GUARDED_BY_NEGATION,
+                           FeatureEdge.LAST_LEXICAL_USE]
+
+
+        filtered_nodes = [node for node in graph.node if node.type in used_node_types]
+        filtered_node_ids = [node.id for node in filtered_nodes]
+
+        filtered_edges = [edge for edge in graph.edge if edge.type in used_edge_types
+                                                         and edge.sourceId in filtered_node_ids
+                                                         and edge.destinationId in filtered_node_ids]
+
+        return filtered_nodes, filtered_edges
+
+
 
 
 
@@ -276,64 +306,68 @@ class model():
             g = Graph()
             g.ParseFromString(f.read())
 
-            id_to_int = self.__get_id_to_int_mapping(g)
-            adj_lists = self.compute_adjacency_lists(g, id_to_int)
-            node_reps = self.compute_initial_node_representation(g)
-            variable_nodes = self.get_var_nodes(g, id_to_int)
+            filtered_nodes, filtered_edges = self.filter_graph(g)
+
+
+            # print("Nodes: ", filtered_nodes)
+            # print("Edges: ", filtered_edges)
+
+            id_to_int = self.__get_id_to_int_mapping(filtered_nodes)
+            variable_node_ids = self.get_var_nodes(g, id_to_int)
+            adj_lists = self.compute_adjacency_lists(filtered_edges, id_to_int)
+            node_reps = self.compute_initial_node_representation(filtered_nodes)
 
             samples = []
 
 
-            for var_id in variable_nodes:
+            for variable_root_id in variable_node_ids:
+
                 node_representation = node_reps.copy()
 
-                for var_node in variable_nodes[var_id]:
-                    node_representation[var_node, :] = 0
-                    node_representation[var_node, 0] = self.slot_id
+                for variable_node_id in variable_node_ids[variable_root_id]:
+                    node_representation[variable_node_id, :] = 0
+                    node_representation[variable_node_id, 0] = self.slot_id
 
 
                 target_mask = np.ones((self.seq_length, 1))
-                var_rep = node_representation[var_node]
-                for i in range(len(var_rep)):
-                    if var_rep[i] == 0: target_mask[i] = 0
+                variable_representation = node_reps[variable_node_id]
+
+                for i in range(len(variable_representation)):
+                    if variable_representation[i] == 0: target_mask[i] = 0
 
 
 
-                # np.set_printoptions(threshold=np.inf)
-                # print("Node representations: ")
-                # print(node_representation)
-                # print("")
-                # print("")
-                #
-                # print("Slot ids: ")
-                # print(variable_nodes[var_id])
-                # print("")
-                # print("")
-                #
-                # print("decoder inputs: ")
-                # print(node_reps[var_node].reshape(self.seq_length, 1))
-                # print("")
-                # print("")
+
+                decoder_inputs = variable_representation.copy()
+                decoder_inputs = np.insert(decoder_inputs, 0, self.sos_token)[:-1]
+                decoder_inputs = decoder_inputs.reshape(self.seq_length, 1)
+
+                decoder_targets = variable_representation.copy()
+                # decoder_targets = np.append(decoder_targets, self.eos_token)
+                decoder_targets = decoder_targets.reshape(1, self.seq_length)
 
                 graph_sample = {
                     self.placeholders['node_token_ids']: node_representation,
                     self.placeholders['num_incoming_edges_per_type']: np.zeros((node_representation.shape[0],
                                                                                 self.params['n_edge_types']),
                                                                                dtype=np.float32),
-                    self.placeholders['slot_ids']: variable_nodes[var_id],
-                    self.placeholders['decoder_targets']: node_reps[var_node].reshape(1, self.seq_length),
-                    self.placeholders['decoder_inputs']: node_reps[var_node].reshape(self.seq_length, 1),
+
+                    self.placeholders['slot_ids']: variable_node_ids[variable_root_id],
+                    self.placeholders['decoder_targets']: decoder_targets,
+                    self.placeholders['decoder_inputs']: decoder_inputs,
                     self.placeholders['decoder_targets_length']: np.ones((1)) * self.seq_length,
                     self.placeholders['target_mask']: target_mask
                 }
 
-                print("Edge types: ", len(adj_lists))
+
+
                 i = 0
                 for key in adj_lists:
                     graph_sample[self.placeholders['adjacency_lists'][i]] = adj_lists[key]
                     i += 1
 
                 samples.append(graph_sample)
+
 
             return samples
 
@@ -358,13 +392,15 @@ class model():
 
     def train(self, path):
 
-        # TODO: filter out extra nodes/edges
-
         graph_samples = self.get_graph_samples(path)
 
         with self.graph.as_default():
 
-            for iteration in range(100):
+            for iteration in range(60):
+
+                print("Epoch: ", iteration)
+                print("----------------------------------------")
+
                 for graph in graph_samples:
                     loss = self.sess.run([self.train_loss, self.train_step], feed_dict=graph)
                     print("Loss:", loss)
@@ -414,6 +450,7 @@ def create_vocabulary(path):
     all_tokens.append('<SLOT>')
     all_tokens.append('sos_token')
     all_tokens.append('eos_token')
+    all_tokens.sort()
 
     vocabulary = Vocabulary.create_vocabulary(all_tokens, max_size=1000, count_threshold=0,
                                                    add_unk=True, add_pad=True)
@@ -422,18 +459,19 @@ def create_vocabulary(path):
 
 
 
-def main(path):
 
+
+def main(path):
 
   vocabulary = create_vocabulary(path)
 
-  print("Vocabulary:", vocabulary)
+  print("Vocabulary: ", vocabulary)
 
   m = model('train', vocabulary)
   m.train(path)
 
-  # m = model('infer', vocabulary)
-  # m.infer(path)
+  m = model('infer', vocabulary)
+  m.infer(path)
 
 
 
