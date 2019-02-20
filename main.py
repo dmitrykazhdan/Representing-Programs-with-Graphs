@@ -2,11 +2,10 @@ import tensorflow as tf
 from graph_pb2 import Graph
 from graph_pb2 import FeatureNode, FeatureEdge
 from dpu_utils.tfmodels import SparseGGNN
-from dpu_utils.codeutils import split_identifier_into_parts
 import numpy as np
 from collections import defaultdict
 import os
-import vocabulary_extractor
+import vocabulary_extractor, graph_preprocessing
 
 
 
@@ -193,104 +192,6 @@ class model():
 
 
 
-    # def compute_edges_per_type(self, graph, incoming=True):
-    #
-    #     # n_nodes = ... #TODO: ensure ids are consecutive
-    #
-    #     # TODO: assumes node ids range from 0 to n_nodes. Ensure this assumption actually holds
-    #     n_nodes, n_edge_types = 10, 5
-    #     edges_matrix = np.zeros((n_nodes, n_edge_types), np.int64)
-    #
-    #     if incoming:
-    #         for e in graph.edge: edges_matrix[e.destinationId, e.type] += 1
-    #     else:
-    #         for e in graph.edge: edges_matrix[e.sourceId, e.type] += 1
-    #
-    #     return edges_matrix
-
-
-
-    def compute_adjacency_lists(self, edges, id_to_index_map):
-
-        adj_lists = defaultdict(list)
-
-        for edge in edges:
-            type_id = edge.type - 1
-            adj_lists[type_id].append([id_to_index_map[edge.sourceId], id_to_index_map[edge.destinationId]])
-
-
-        final_adj_lists = {edge_type: np.array(sorted(adj_list), dtype=np.int32)
-                           for edge_type, adj_list in adj_lists.items()}
-
-
-        print("types: ", len(final_adj_lists))
-
-        return final_adj_lists
-
-    def compute_initial_node_representation(self, nodes):
-
-        max_size = self.seq_length
-        padding_element = self.pad_token
-
-        node_representations = np.array([self.vocabulary.get_id_or_unk_multiple(split_identifier_into_parts(node.contents),
-                                                                           max_size, padding_element)
-                                                                            for node in nodes])
-
-        return node_representations
-
-    # Obtain map from symbol_var node id to all corresponding variable identifier tokens
-    def get_var_nodes_map(self, graph, id_to_index_map):
-
-        var_nodes_map = defaultdict(list)
-
-        # Extract node ids of all identifier tokens
-        identifier_token_node_ids = [node.id for node in graph.node if node.type == FeatureNode.IDENTIFIER_TOKEN]
-
-        # Extract node ids of all symbol variable nodes
-        symbol_var_node_ids = [node.id for node in graph.node if node.type == FeatureNode.SYMBOL_VAR]
-
-        # Assume all identifier nodes are direct descendants of a symbol variable node
-        for edge in graph.edge:
-            if edge.sourceId in symbol_var_node_ids and edge.destinationId in identifier_token_node_ids:
-                var_nodes_map[edge.sourceId].append(id_to_index_map[edge.destinationId])
-
-        return var_nodes_map
-
-    # Aquire map from node id in the graph to the node index in the node representation matrix
-    def get_node_id_to_index_map(self, nodes):
-
-        id_to_index_map = {}
-
-        ind = 0
-        for node in nodes:
-            id_to_index_map[node.id] = ind
-            ind += 1
-
-        return id_to_index_map
-
-    # Filter out nodes/edges from graph
-    def filter_graph(self, graph):
-
-        used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN,
-                           FeatureNode.FAKE_AST, FeatureNode.SYMBOL, FeatureNode.SYMBOL_VAR]
-
-        used_edge_types = [FeatureEdge.NEXT_TOKEN, FeatureEdge.AST_CHILD, FeatureEdge.LAST_WRITE,
-                           FeatureEdge.LAST_USE, FeatureEdge.COMPUTED_FROM, FeatureEdge.RETURNS_TO,
-                           FeatureEdge.FORMAL_ARG_NAME, FeatureEdge.GUARDED_BY, FeatureEdge.GUARDED_BY_NEGATION,
-                           FeatureEdge.LAST_LEXICAL_USE]
-
-
-        filtered_nodes = [node for node in graph.node if node.type in used_node_types]
-        filtered_node_ids = [node.id for node in filtered_nodes]
-
-        filtered_edges = [edge for edge in graph.edge if edge.type in used_edge_types
-                                                         and edge.sourceId in filtered_node_ids
-                                                         and edge.destinationId in filtered_node_ids]
-
-        return filtered_nodes, filtered_edges
-
-
-
     def create_sample(self, variable_node_ids, node_representation, adj_lists):
 
         node_rep_copy = node_representation.copy()
@@ -361,12 +262,13 @@ class model():
             g = Graph()
             g.ParseFromString(f.read())
 
-            filtered_nodes, filtered_edges = self.filter_graph(g)
+            filtered_nodes, filtered_edges = graph_preprocessing.filter_graph(g)
 
-            id_to_index_map = self.get_node_id_to_index_map(filtered_nodes)
-            variable_node_ids = self.get_var_nodes_map(g, id_to_index_map)
-            adjacency_lists = self.compute_adjacency_lists(filtered_edges, id_to_index_map)
-            node_representations = self.compute_initial_node_representation(filtered_nodes)
+            id_to_index_map = graph_preprocessing.get_node_id_to_index_map(filtered_nodes)
+            variable_node_ids = graph_preprocessing.get_var_nodes_map(g, id_to_index_map)
+            adjacency_lists = graph_preprocessing.compute_adjacency_lists(filtered_edges, id_to_index_map)
+            node_representations = graph_preprocessing.compute_initial_node_representation(filtered_nodes, self.seq_length,
+                                                                                           self.pad_token, self.vocabulary)
 
             samples, labels = [], []
 
