@@ -3,12 +3,10 @@ from graph_pb2 import Graph
 from graph_pb2 import FeatureNode, FeatureEdge
 from dpu_utils.tfmodels import SparseGGNN
 from dpu_utils.codeutils import split_identifier_into_parts
-from dpu_utils.mlutils import Vocabulary
-from typing import List, Optional, Dict, Any
-from itertools import groupby
 import numpy as np
 from collections import defaultdict
 import os
+import vocabulary_extractor
 
 
 
@@ -429,73 +427,34 @@ class model():
 
 
 
-def create_vocabulary(path):
-
-    all_tokens = []
-
-    for dirpath, dirs, files in os.walk(path):
-        for filename in files:
-            if filename[-5:] == 'proto':
-                fname = os.path.join(dirpath, filename)
-
-                with open(fname, "rb") as f:
-                    g = Graph()
-                    g.ParseFromString(f.read())
-
-                    for n in g.node:
-                        all_tokens += split_identifier_into_parts(n.contents)
-
-
-    all_tokens = list(set(all_tokens))
-    all_tokens.append('<SLOT>')
-    all_tokens.append('sos_token')
-    all_tokens.append('eos_token')
-    all_tokens.sort()
-
-    vocabulary = Vocabulary.create_vocabulary(all_tokens, max_size=1000, count_threshold=0,
-                                                   add_unk=True, add_pad=True)
-
-    return vocabulary
 
 
 
 
 
-def main(path):
 
-  vocabulary = create_vocabulary(path)
+def main():
 
-  print("Vocabulary: ", vocabulary)
-
+  # Training:
+  vocabulary = vocabulary_extractor.create_vocabulary_from_corpus(corpus_path, token_path)
   m = model('train', vocabulary)
-  m.train(path)
-
-  m = model('infer', vocabulary)
-  m.infer(path)
+  m.train(corpus_path)
 
 
-
-
-
-main("/Users/AdminDK/Desktop/sample_graphs")
+  # Inference
+  # vocabulary = vocabulary_extractor.load_vocabulary(token_path)
+  # m = model('infer', vocabulary)
+  # m.infer(corpus_path)
 
 
 
 
 
-'''
-Nodes:
-FAKE_AST, SYMBOL, SYMBOL_TYP, SYMBOL_VAR, SYMBOL_MTH, COMMENT_LINE, COMMENT_BLOCK, COMMENT_JAVADOC ?
 
-Used Node Types: TOKEN, AST_ELEMENT, IDENTIFIER_TOKEN
+corpus_path = "/Users/AdminDK/Desktop/sample_graphs"
+token_path = "/Users/AdminDK/Desktop/tokens.txt"
 
-
-Edges:
-ASSOCIATED_TOKEN, NONE, COMMENT
-
-Used Edge Types: NEXT_TOKEN, AST_CHILD, LAST_WRITE, LAST_USE, COMPUTED_FROM, RETURNS_TO, FORMAL_ARG_NAME, GUARDED_BY,
-GUARDED_BY_NEGATION, LAST_LEXICAL_USE, 
-'''
+main()
 
 
 
