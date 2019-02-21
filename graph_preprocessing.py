@@ -7,7 +7,8 @@ from dpu_utils.codeutils import split_identifier_into_parts
 # Filter out nodes/edges from graph
 def filter_graph(graph):
 
-    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN]
+    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN,
+                       FeatureNode.FAKE_AST, FeatureNode.COMMENT_LINE, FeatureNode.COMMENT_BLOCK]
 
     used_edge_types = [FeatureEdge.NEXT_TOKEN, FeatureEdge.AST_CHILD, FeatureEdge.LAST_WRITE,
                        FeatureEdge.LAST_USE, FeatureEdge.COMPUTED_FROM, FeatureEdge.RETURNS_TO,
@@ -78,10 +79,29 @@ def compute_adjacency_lists(edges, id_to_index_map):
 
     adj_lists = defaultdict(list)
 
+    used_edge_types = [FeatureEdge.NEXT_TOKEN, FeatureEdge.AST_CHILD, FeatureEdge.LAST_WRITE,
+                       FeatureEdge.LAST_USE, FeatureEdge.COMPUTED_FROM, FeatureEdge.RETURNS_TO,
+                       FeatureEdge.FORMAL_ARG_NAME, FeatureEdge.GUARDED_BY, FeatureEdge.GUARDED_BY_NEGATION,
+                       FeatureEdge.LAST_LEXICAL_USE]
+
+
     for edge in edges:
-        type_id = edge.type - 1
+        type_id = used_edge_types.index(edge.type)
         adj_lists[type_id].append([id_to_index_map[edge.sourceId], id_to_index_map[edge.destinationId]])
 
+
+    # Temporary solution: add dummy edge to have at least one edge per type
+    dummy_edge = [id_to_index_map[edges[0].sourceId], id_to_index_map[edges[0].destinationId]]
+
+
+
+
+    for i in range(10):
+        if i not in adj_lists:
+            adj_lists[i].append(dummy_edge)
+
+
+    print("Types: ", len(adj_lists))
 
     final_adj_lists = {edge_type: np.array(sorted(adj_list), dtype=np.int32)
                        for edge_type, adj_list in adj_lists.items()}
