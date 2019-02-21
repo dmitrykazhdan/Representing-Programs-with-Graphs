@@ -6,8 +6,8 @@ import numpy as np
 from collections import defaultdict
 import os
 import vocabulary_extractor, graph_preprocessing
-
-
+from random import shuffle
+import math
 
 
 class model():
@@ -46,7 +46,6 @@ class model():
             self.sess.run(init_op)
 
 
-    # TODO: Add batched iteration
 
     def make_inputs(self):
 
@@ -62,19 +61,19 @@ class model():
 
 
         # Node identifiers of all graph nodes of the target variable
-        self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [None], name='slot_tokens')
+        self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [None, self.batch_size], name='slot_tokens')
 
         #
-        self.placeholders['decoder_inputs'] = tf.placeholder(shape=(self.output_length, 1), dtype=tf.int32, name='dec_inputs')
+        self.placeholders['decoder_inputs'] = tf.placeholder(shape=(self.output_length, self.batch_size), dtype=tf.int32, name='dec_inputs')
 
         # Actual variable name, as a padded sequence of tokens
-        self.placeholders['decoder_targets'] = tf.placeholder(dtype=tf.int32, shape=(1, self.output_length), name='dec_targets')
+        self.placeholders['decoder_targets'] = tf.placeholder(dtype=tf.int32, shape=(self.batch_size, self.output_length), name='dec_targets')
 
         # Specify output sequence lengths
-        self.placeholders['decoder_targets_length'] = tf.placeholder(shape=(1), dtype=tf.int32)
+        self.placeholders['decoder_targets_length'] = tf.placeholder(shape=(self.batch_size), dtype=tf.int32)
 
         # 0/1 matrix masking out tensor elements outside of the sequence length
-        self.placeholders['target_mask'] = tf.placeholder(tf.float32, [None, None])
+        self.placeholders['target_mask'] = tf.placeholder(tf.float32, [None, self.batch_size])
 
 
 
@@ -91,7 +90,7 @@ class model():
 
         # Run graph through GGNN
         self.gnn_model = SparseGGNN(self.params)
-        self.placeholders['gnn_representation'] = self.gnn_model.sparse_gnn_layer(0.9,
+        self.placeholders['gnn_representation'] = self.gnn_model.sparse_gnn_layer(1.0,
                                                                         self.placeholders['averaged_initial_representation'],
                                                                         self.placeholders['adjacency_lists'],
                                                                         self.placeholders['num_incoming_edges_per_type'],
@@ -205,7 +204,7 @@ class model():
             node_rep_copy[variable_node_id, 0] = self.slot_id
 
 
-        target_mask = np.zeros((self.output_length, 1))
+        target_mask = np.zeros((self.output_length, self.batch_size))
 
         variable_representation = node_representation[variable_node_ids[0]][:self.output_length]
 
@@ -291,6 +290,83 @@ class model():
             return samples, labels
 
 
+
+
+    def make_batch_samples(self, graph_samples):
+
+        batch_samples = []
+        shuffle(graph_samples)
+
+        n_batches = math.ceil(len(graph_samples)/self.batch_size)
+
+        for i in range(n_batches):
+            start = i * self.batch_size
+            end = min(start + self.batch_size, len(graph_samples))
+            batch_samples.append(self.make_batch(graph_samples[start:end]))
+
+
+        return batch_samples
+
+
+
+
+    def make_batch(self, graph_samples):
+
+        node_offset = 0
+        node_representations = []
+        adj_lists = [[] for _ in range(self.params['n_edge_types'])]
+        num_incoming_edges_per_type = []
+        num_outgoing_edges_per_type = []
+        decoder_inputs = []
+        decoder_targets = []
+        decoder_targets_length = []
+        decoder_masks = []
+
+        for graph_sample in graph_samples:
+
+            num_nodes_in_graph = len(graph_sample[self.placeholders['node_token_ids']])
+            node_representations.extend(graph_sample[self.placeholders['node_token_ids']])
+
+
+            for i in range(self.params['n_edge_types']):
+                if i in graph_sample[self.placeholders['adjacency_lists']]:
+                    adj_lists[i].append(graph_sample[self.placeholders['adjacency_lists'][i]] + node_offset)
+
+            num_incoming_edges_per_type.append(self.placeholders['num_incoming_edges_per_type'])
+            num_outgoing_edges_per_type.append(self.placeholders['num_outgoing_edges_per_type'])
+            decoder_inputs.append(self.placeholders['decoder_inputs'])
+            decoder_targets.append(self.placeholders['decoder_targets'])
+            decoder_targets_length.append(self.placeholders['decoder_targets_length'])
+            decoder_masks.append(self.placeholders['target_mask'])
+
+            # TODO: consider how to handle slot ids
+
+            node_offset += num_nodes_in_graph
+
+
+        batch_sample = {
+            self.placeholders['node_token_ids']: np.vstack(node_representations),
+            self.placeholders['num_incoming_edges_per_type']: np.vstack(num_incoming_edges_per_type),
+            self.placeholders['num_outgoing_edges_per_type']: np.vstack(num_outgoing_edges_per_type),
+            self.placeholders['slot_ids']: None,# TBC
+
+            self.placeholders['decoder_targets']: np.vstack(decoder_targets),
+            self.placeholders['decoder_inputs']: np.hstack(decoder_inputs),
+            self.placeholders['decoder_targets_length']: np.hstack(decoder_targets_length),
+            self.placeholders['target_mask']: np.hstack(decoder_masks)
+        }
+
+
+        for i in range(self.params['n_edge_types']):
+            if len(adj_lists[i]) > 0:
+                adj_list = np.concatenate(adj_lists[i])
+            else:
+                adj_list = np.zeros((0, 2), dtype=np.int32)
+
+            batch_sample[self.placeholders['adjacency_lists'][i]] = adj_list
+
+
+        return batch_sample
 
 
 
