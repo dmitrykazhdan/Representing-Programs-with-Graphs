@@ -19,7 +19,8 @@ class model():
 
         self.params = self.get_gnn_params()
 
-        self.seq_length = 12
+        self.input_length = 16
+        self.output_length = 8
 
         self.vocabulary = vocabulary
         self.voc_size = len(vocabulary)
@@ -50,7 +51,7 @@ class model():
     def make_inputs(self):
 
         # Padded graph node sub-token sequences
-        self.placeholders['node_token_ids'] = tf.placeholder(tf.int32, [None, self.seq_length])
+        self.placeholders['node_token_ids'] = tf.placeholder(tf.int32, [None, self.input_length])
 
         # Graph adjacency lists
         self.placeholders['adjacency_lists'] = [tf.placeholder(tf.int32, [None, 2]) for _ in range(self.params['n_edge_types'])]
@@ -64,10 +65,10 @@ class model():
         self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [None], name='slot_tokens')
 
         #
-        self.placeholders['decoder_inputs'] = tf.placeholder(shape=(self.seq_length, 1), dtype=tf.int32, name='dec_inputs')
+        self.placeholders['decoder_inputs'] = tf.placeholder(shape=(self.output_length, 1), dtype=tf.int32, name='dec_inputs')
 
         # Actual variable name, as a padded sequence of tokens
-        self.placeholders['decoder_targets'] = tf.placeholder(dtype=tf.int32, shape=(1, self.seq_length), name='dec_targets')
+        self.placeholders['decoder_targets'] = tf.placeholder(dtype=tf.int32, shape=(1, self.output_length), name='dec_targets')
 
         # Specify output sequence lengths
         self.placeholders['decoder_targets_length'] = tf.placeholder(shape=(1), dtype=tf.int32)
@@ -90,7 +91,7 @@ class model():
 
         # Run graph through GGNN
         self.gnn_model = SparseGGNN(self.params)
-        self.placeholders['gnn_representation'] = self.gnn_model.sparse_gnn_layer(1.0,
+        self.placeholders['gnn_representation'] = self.gnn_model.sparse_gnn_layer(0.9,
                                                                         self.placeholders['averaged_initial_representation'],
                                                                         self.placeholders['adjacency_lists'],
                                                                         self.placeholders['num_incoming_edges_per_type'],
@@ -132,7 +133,7 @@ class model():
             # Define inference sequence decoder
             start_tokens = tf.fill([self.batch_size], self.sos_token)
             end_token = self.pad_token
-            max_iterations = self.seq_length
+            max_iterations = self.output_length
 
             self.inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.embedding_decoder,
                                                               start_tokens=start_tokens, end_token=end_token)
@@ -168,7 +169,7 @@ class model():
         self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, 5.0)
 
         # Optimization
-        self.optimizer = tf.train.AdamOptimizer(0.01)
+        self.optimizer = tf.train.AdamOptimizer(0.0001)
         self.train_step = self.optimizer.apply_gradients(zip(self.clipped_gradients, self.train_vars))
 
 
@@ -176,14 +177,14 @@ class model():
     def get_gnn_params(self):
 
         gnn_params = {}
-        gnn_params["n_edge_types"] = 5
+        gnn_params["n_edge_types"] = 10
         gnn_params["hidden_size"] = 64
         gnn_params["edge_features_size"] = {}  # Dict from edge type to feature size
         gnn_params["add_backwards_edges"] = True
         gnn_params["message_aggregation_type"] = "sum"
         gnn_params["layer_timesteps"] = [8]
-        gnn_params["use_propagation_attention"] = True
-        gnn_params["use_edge_bias"] = True
+        gnn_params["use_propagation_attention"] = False
+        gnn_params["use_edge_bias"] = False
         gnn_params["graph_rnn_activation"] = "relu"
         gnn_params["graph_rnn_cell"] = "gru"
         gnn_params["residual_connections"] = {}  #
@@ -204,9 +205,9 @@ class model():
             node_rep_copy[variable_node_id, 0] = self.slot_id
 
 
-        target_mask = np.zeros((self.seq_length, 1))
+        target_mask = np.zeros((self.output_length, 1))
 
-        variable_representation = node_representation[variable_node_ids[0]]
+        variable_representation = node_representation[variable_node_ids[0]][:self.output_length]
 
         var_name = [self.vocabulary.get_name_for_id(token_id)
                     for token_id in variable_representation if token_id != self.pad_token]
@@ -220,15 +221,15 @@ class model():
             # Set decoder inputs and targets
             decoder_inputs = variable_representation.copy()
             decoder_inputs = np.insert(decoder_inputs, 0, self.sos_token)[:-1]
-            decoder_inputs = decoder_inputs.reshape(self.seq_length, 1)
+            decoder_inputs = decoder_inputs.reshape(self.output_length, 1)
 
             decoder_targets = variable_representation.copy()
-            decoder_targets = decoder_targets.reshape(1, self.seq_length)
+            decoder_targets = decoder_targets.reshape(1, self.output_length)
 
         elif self.mode == 'infer':
 
-            decoder_inputs = np.zeros((self.seq_length, 1))
-            decoder_targets = np.zeros((1, self.seq_length))
+            decoder_inputs = np.zeros((self.output_length, 1))
+            decoder_targets = np.zeros((1, self.output_length))
 
 
         # Create the sample graph
@@ -239,7 +240,7 @@ class model():
             self.placeholders['slot_ids']: variable_node_ids,
             self.placeholders['decoder_targets']: decoder_targets,
             self.placeholders['decoder_inputs']: decoder_inputs,
-            self.placeholders['decoder_targets_length']: np.ones((1)) * self.seq_length,
+            self.placeholders['decoder_targets_length']: np.ones((1)) * self.output_length,
             self.placeholders['target_mask']: target_mask
         }
 
@@ -269,7 +270,7 @@ class model():
 
             adjacency_lists = graph_preprocessing.compute_adjacency_lists(filtered_edges, id_to_index_map)
 
-            node_representations = graph_preprocessing.compute_initial_node_representation(filtered_nodes, self.seq_length,
+            node_representations = graph_preprocessing.compute_initial_node_representation(filtered_nodes, self.input_length,
                                                                                            self.pad_token, self.vocabulary)
 
             incoming_edges_per_type, outgoing_edges_per_type = \
@@ -312,8 +313,10 @@ class model():
 
     def train(self, corpus_path):
 
+        n_epochs = 150
         train_samples, _ = self.get_samples(corpus_path)
-        n_epochs = 100
+
+        print("Train vals: ", _)
 
         with self.graph.as_default():
 
@@ -336,6 +339,8 @@ class model():
     def infer(self, corpus_path):
 
         test_samples, test_labels = self.get_samples(corpus_path)
+
+        print("Test vals: ", test_labels)
 
         with self.graph.as_default():
 
@@ -372,15 +377,15 @@ class model():
 def main():
 
   # Training:
-  vocabulary = vocabulary_extractor.create_vocabulary_from_corpus(corpus_path, token_path)
+  vocabulary = vocabulary_extractor.create_vocabulary_from_corpus(train_path, token_path)
   m = model('train', vocabulary)
-  m.train(corpus_path)
+  m.train(train_path)
 
 
   # Inference
   vocabulary = vocabulary_extractor.load_vocabulary(token_path)
   m = model('infer', vocabulary)
-  m.infer(corpus_path)
+  m.infer(test_path)
 
 
 
@@ -388,7 +393,8 @@ def main():
 
 
 
-corpus_path = "/Users/AdminDK/Desktop/sample_graphs"
+train_path = "/Users/AdminDK/Desktop/train_graphs"
+test_path = "/Users/AdminDK/Desktop/test_graphs"
 token_path = "/Users/AdminDK/Desktop/tokens.txt"
 
 main()
