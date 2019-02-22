@@ -6,7 +6,7 @@ import numpy as np
 from collections import defaultdict
 import os
 import vocabulary_extractor, graph_preprocessing
-
+import matplotlib.pyplot as plt
 
 
 
@@ -311,10 +311,10 @@ class model():
 
 
 
-    def train(self, corpus_path):
+    def train(self, corpus_path, n_epochs):
 
-        n_epochs = 150
         train_samples, _ = self.get_samples(corpus_path)
+        losses = []
 
         print("Train vals: ", _)
 
@@ -327,12 +327,23 @@ class model():
                 for graph in train_samples:
                     loss += self.sess.run([self.train_loss, self.train_step], feed_dict=graph)[0]
 
+                losses.append(loss)
+
                 print("Average Epoch Loss:", (loss/len(train_samples)))
                 print("Epoch: ", epoch)
                 print("---------------------------------------------")
 
             saver = tf.train.Saver()
             saver.save(self.sess, self.checkpoint_path)
+
+
+        # Plot training loss
+        # x = range(1, n_epochs+1)
+        # plt.plot(x, losses)
+        # plt.xlabel('Epochs')
+        # plt.ylabel('Loss')
+        # plt.title('Training Loss')
+        # plt.show()
 
 
 
@@ -363,11 +374,11 @@ class model():
 
                 if predicted_name[:-1] == test_labels[i]: n_correct += 1
 
+            accuracy = n_correct/len(test_samples)
 
-            print("Absolute accuracy: ", n_correct/len(test_samples) * 100)
+            print("Absolute accuracy: ", accuracy * 100)
 
-
-
+            return accuracy
 
 
 
@@ -377,15 +388,16 @@ class model():
 def main():
 
   # Training:
+  n_train_epochs = 20
   vocabulary = vocabulary_extractor.create_vocabulary_from_corpus(train_path, token_path)
   m = model('train', vocabulary)
-  m.train(train_path)
+  m.train(train_path, n_train_epochs)
 
 
   # Inference
   vocabulary = vocabulary_extractor.load_vocabulary(token_path)
   m = model('infer', vocabulary)
-  m.infer(test_path)
+  test_acc = m.infer(test_path)
 
 
 
@@ -397,7 +409,20 @@ train_path = "/Users/AdminDK/Desktop/train_graphs"
 test_path = "/Users/AdminDK/Desktop/test_graphs"
 token_path = "/Users/AdminDK/Desktop/tokens.txt"
 
+
 main()
+
+
+# for main_epoch in epochs:
+#     main()
+#plt.plot(epochs, main_accuracies)
+# plt.scatter(epochs, main_accuracies, marker='x', color='red')
+# plt.xlabel('Training Epochs')
+# plt.ylabel('Accuracy')
+# plt.title('Training Data Accuracy')
+# plt.show()
+
+
 
 
 
