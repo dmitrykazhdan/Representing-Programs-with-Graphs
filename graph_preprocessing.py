@@ -90,22 +90,13 @@ def compute_adjacency_lists(edges, id_to_index_map):
         adj_lists[type_id].append([id_to_index_map[edge.sourceId], id_to_index_map[edge.destinationId]])
 
 
-    # Temporary solution: add dummy edge to have at least one edge per type
-    dummy_edge = [id_to_index_map[edges[0].sourceId], id_to_index_map[edges[0].destinationId]]
-
-
-
-
-    for i in range(10):
-        if i not in adj_lists:
-            adj_lists[i].append(dummy_edge)
-
-
-    print("Types: ", len(adj_lists))
-
     final_adj_lists = {edge_type: np.array(sorted(adj_list), dtype=np.int32)
                        for edge_type, adj_list in adj_lists.items()}
 
+
+    for i in range(len(used_edge_types)):
+        if i not in final_adj_lists:
+            final_adj_lists[i] = np.zeros((0, 2), dtype=np.int32)
 
     return final_adj_lists
 
