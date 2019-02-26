@@ -31,7 +31,7 @@ class model():
 
         self.graph = tf.Graph()
         self.sess = tf.Session(graph=self.graph)
-        self.batch_size = 1
+        self.batch_size = 6
         self.mode = mode
 
         with self.graph.as_default():
@@ -61,7 +61,7 @@ class model():
 
 
         # Node identifiers of all graph nodes of the target variable
-        self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [None, self.batch_size], name='slot_tokens')
+        self.placeholders['slot_ids'] = [tf.placeholder(tf.int32, [None, 1]) for _ in range(self.batch_size)]
 
         #
         self.placeholders['decoder_inputs'] = tf.placeholder(shape=(self.output_length, self.batch_size), dtype=tf.int32, name='dec_inputs')
@@ -73,7 +73,7 @@ class model():
         self.placeholders['decoder_targets_length'] = tf.placeholder(shape=(self.batch_size), dtype=tf.int32)
 
         # 0/1 matrix masking out tensor elements outside of the sequence length
-        self.placeholders['target_mask'] = tf.placeholder(tf.float32, [None, self.batch_size])
+        self.placeholders['target_mask'] = tf.placeholder(tf.float32, [self.batch_size, self.output_length])
 
 
 
@@ -98,8 +98,10 @@ class model():
                                                                         {})
 
         # Compute average of <SLOT> usage representations
-        self.placeholders['avg_representation'] = tf.expand_dims(tf.reduce_mean(tf.gather(self.placeholders['gnn_representation'],
-                                                                                self.placeholders['slot_ids']), axis=0), 0)
+        self.placeholders['avg_representation'] = [tf.reduce_mean(tf.gather(self.placeholders['gnn_representation'],slot_ids), axis=0)
+                                                   for slot_ids in self.placeholders['slot_ids']]
+
+        self.placeholders['avg_representation'] = tf.concat(self.placeholders['avg_representation'], axis=0)
 
         # Obtain output sequence by passing through a single GRU layer
         self.embedding_decoder = tf.get_variable('embedding_decoder', [self.voc_size, self.embedding_size])
@@ -159,7 +161,7 @@ class model():
     def make_train_step(self):
 
         self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'], logits=self.decoder_logits_train)
-        self.train_loss = tf.reduce_sum(self.crossent * self.placeholders['target_mask'])
+        self.train_loss = tf.reduce_sum(tf.multiply(self.crossent, self.placeholders['target_mask']))
 
 
         # Calculate and clip gradients
@@ -204,7 +206,7 @@ class model():
             node_rep_copy[variable_node_id, 0] = self.slot_id
 
 
-        target_mask = np.zeros((self.output_length, self.batch_size))
+        target_mask = np.zeros((1, self.output_length))
 
         variable_representation = node_representation[variable_node_ids[0]][:self.output_length]
 
@@ -214,8 +216,9 @@ class model():
         if self.mode == 'train':
 
             # Fill in target mask
-            for i in range(len(variable_representation)):
-                if variable_representation[i] != self.pad_token: target_mask[i, 0] = 1
+            non_pads = sum([1 for token in variable_representation if token != self.pad_token]) + 1
+            target_mask[0, 0:non_pads] = 1
+
 
             # Set decoder inputs and targets
             decoder_inputs = variable_representation.copy()
@@ -236,12 +239,16 @@ class model():
             self.placeholders['node_token_ids']: node_rep_copy,
             self.placeholders['num_incoming_edges_per_type']: incoming_edges,
             self.placeholders['num_outgoing_edges_per_type']: outgoing_edges,
-            self.placeholders['slot_ids']: variable_node_ids,
             self.placeholders['decoder_targets']: decoder_targets,
             self.placeholders['decoder_inputs']: decoder_inputs,
             self.placeholders['decoder_targets_length']: np.ones((1)) * self.output_length,
             self.placeholders['target_mask']: target_mask
         }
+
+        variable_node_ids = np.array(variable_node_ids)
+        variable_node_ids = variable_node_ids.reshape(variable_node_ids.shape[0], 1)
+
+        graph_sample[self.placeholders['slot_ids'][0]] = variable_node_ids
 
         i = 0
         for key in adj_lists:
@@ -292,20 +299,24 @@ class model():
 
 
 
-    def make_batch_samples(self, graph_samples):
+    def make_batch_samples(self, graph_samples, labels):
+
+        zipped = list(zip(graph_samples, labels))
+        shuffle(zipped)
+        graph_samples, labels = zip(*zipped)
 
         batch_samples = []
-        shuffle(graph_samples)
 
         n_batches = math.ceil(len(graph_samples)/self.batch_size)
 
-        for i in range(n_batches):
+        print("Samples: ", len(graph_samples))
+
+        for i in range(n_batches - 1):
             start = i * self.batch_size
             end = min(start + self.batch_size, len(graph_samples))
             batch_samples.append(self.make_batch(graph_samples[start:end]))
 
-
-        return batch_samples
+        return batch_samples, labels
 
 
 
@@ -321,25 +332,24 @@ class model():
         decoder_targets = []
         decoder_targets_length = []
         decoder_masks = []
+        slot_ids = []
 
         for graph_sample in graph_samples:
 
             num_nodes_in_graph = len(graph_sample[self.placeholders['node_token_ids']])
-            node_representations.extend(graph_sample[self.placeholders['node_token_ids']])
+            node_representations.append(graph_sample[self.placeholders['node_token_ids']])
 
 
             for i in range(self.params['n_edge_types']):
-                if i in graph_sample[self.placeholders['adjacency_lists']]:
-                    adj_lists[i].append(graph_sample[self.placeholders['adjacency_lists'][i]] + node_offset)
+                adj_lists[i].append(graph_sample[self.placeholders['adjacency_lists'][i]] + node_offset)
 
-            num_incoming_edges_per_type.append(self.placeholders['num_incoming_edges_per_type'])
-            num_outgoing_edges_per_type.append(self.placeholders['num_outgoing_edges_per_type'])
-            decoder_inputs.append(self.placeholders['decoder_inputs'])
-            decoder_targets.append(self.placeholders['decoder_targets'])
-            decoder_targets_length.append(self.placeholders['decoder_targets_length'])
-            decoder_masks.append(self.placeholders['target_mask'])
-
-            # TODO: consider how to handle slot ids
+            num_incoming_edges_per_type.append(graph_sample[self.placeholders['num_incoming_edges_per_type']])
+            num_outgoing_edges_per_type.append(graph_sample[self.placeholders['num_outgoing_edges_per_type']])
+            decoder_inputs.append(graph_sample[self.placeholders['decoder_inputs']])
+            decoder_targets.append(graph_sample[self.placeholders['decoder_targets']])
+            decoder_targets_length.append(graph_sample[self.placeholders['decoder_targets_length']])
+            decoder_masks.append(graph_sample[self.placeholders['target_mask']])
+            slot_ids.append(graph_sample[self.placeholders['slot_ids'][0]])
 
             node_offset += num_nodes_in_graph
 
@@ -348,13 +358,15 @@ class model():
             self.placeholders['node_token_ids']: np.vstack(node_representations),
             self.placeholders['num_incoming_edges_per_type']: np.vstack(num_incoming_edges_per_type),
             self.placeholders['num_outgoing_edges_per_type']: np.vstack(num_outgoing_edges_per_type),
-            self.placeholders['slot_ids']: None,# TBC
-
             self.placeholders['decoder_targets']: np.vstack(decoder_targets),
             self.placeholders['decoder_inputs']: np.hstack(decoder_inputs),
             self.placeholders['decoder_targets_length']: np.hstack(decoder_targets_length),
-            self.placeholders['target_mask']: np.hstack(decoder_masks)
+            self.placeholders['target_mask']: np.vstack(decoder_masks)
         }
+
+
+        for i in range(self.batch_size):
+            batch_sample[self.placeholders['slot_ids'][i]] = slot_ids[i]
 
 
         for i in range(self.params['n_edge_types']):
@@ -389,8 +401,9 @@ class model():
 
     def train(self, corpus_path):
 
-        n_epochs = 150
+        n_epochs = 80
         train_samples, _ = self.get_samples(corpus_path)
+        train_samples, _ = self.make_batch_samples(train_samples, _)
 
         print("Train vals: ", _)
 
@@ -415,6 +428,7 @@ class model():
     def infer(self, corpus_path):
 
         test_samples, test_labels = self.get_samples(corpus_path)
+        test_samples, test_labels = self.make_batch_samples(test_samples, test_labels)
 
         print("Test vals: ", test_labels)
 
@@ -425,22 +439,35 @@ class model():
             print("Model loaded successfully...")
 
             n_correct = 0
+            predicted_names = []
 
-            for i, graph in enumerate(test_samples):
+            for graph in test_samples:
 
                 predictions = self.sess.run([self.predictions], feed_dict=graph)[0]
 
-                predicted_name = [self.vocabulary.get_name_for_id(token_id) for token_id in predictions[0]]
+                for i in range(self.batch_size):
+                    predicted_name = [self.vocabulary.get_name_for_id(token_id) for token_id in predictions[i]]
 
-                print("Predicted: ", predicted_name)
+                    if self.vocabulary.get_pad() in predicted_name:
+                        pad_index = predicted_name.index(self.vocabulary.get_pad())
+                        predicted_name = predicted_name[:pad_index]
+
+
+
+                    predicted_names.append(predicted_name)
+
+
+            for i in range(len(predicted_names)):
+
+                print("Predicted: ", predicted_names[i])
                 print("Actual: ", test_labels[i])
                 print("")
                 print("")
 
-                if predicted_name[:-1] == test_labels[i]: n_correct += 1
+                if predicted_names[i] == test_labels[i]: n_correct += 1
 
 
-            print("Absolute accuracy: ", n_correct/len(test_samples) * 100)
+            print("Absolute accuracy: ", n_correct/len(predicted_names) * 100)
 
 
 
