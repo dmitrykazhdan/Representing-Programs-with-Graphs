@@ -6,6 +6,7 @@ import numpy as np
 from collections import defaultdict
 import os
 import vocabulary_extractor, graph_preprocessing
+from data_preprocessing import CorpusMetaInformation, SampleMetaInformation
 import matplotlib.pyplot as plt
 from random import shuffle
 import math
@@ -284,7 +285,7 @@ class model():
                 graph_preprocessing.compute_edges_per_type(len(node_representations), adjacency_lists)
 
 
-            samples, labels = [], []
+            samples, labels, sample_meta_inf = [], [], []
 
             for variable_root_id in variable_node_ids:
 
@@ -295,16 +296,15 @@ class model():
                 samples.append(new_sample)
                 labels.append(new_label)
 
-            return samples, labels
+                meta_inf = SampleMetaInformation(filepath, variable_root_id)
+                sample_meta_inf.append(meta_inf)
+
+            return samples, labels, meta_inf
 
 
 
 
     def make_batch_samples(self, graph_samples, labels):
-
-        zipped = list(zip(graph_samples, labels))
-        shuffle(zipped)
-        graph_samples, labels = zip(*zipped)
 
         batch_samples = []
 
@@ -316,9 +316,6 @@ class model():
             batch_samples.append(self.make_batch(graph_samples[start:end]))
 
         return batch_samples, labels
-
-
-
 
     def make_batch(self, graph_samples):
 
@@ -380,21 +377,35 @@ class model():
         return batch_sample
 
 
-
     def get_samples(self, dir_path):
 
-        graph_samples, labels = [], []
+        graph_samples, labels, _ = self.get_samples_with_inf(dir_path)
+
+        return graph_samples, labels
+
+
+
+    def get_samples_with_inf(self, dir_path):
+
+        graph_samples, labels, meta_sample_inf = [], [], []
 
         for dirpath, dirs, files in os.walk(dir_path):
             for filename in files:
                 if filename[-5:] == 'proto':
                     fname = os.path.join(dirpath, filename)
-                    new_samples, new_labels = self.create_samples(fname)
+                    new_samples, new_labels, new_inf = self.create_samples(fname)
 
                     graph_samples += new_samples
                     labels += new_labels
+                    meta_sample_inf += new_inf
 
-        return graph_samples, labels
+
+        # Shuffle the individual samples
+        zipped = list(zip(graph_samples, labels, meta_sample_inf))
+        shuffle(zipped)
+        graph_samples, labels, meta_sample_inf = zip(*zipped)
+
+        return graph_samples, labels, meta_sample_inf
 
 
 
