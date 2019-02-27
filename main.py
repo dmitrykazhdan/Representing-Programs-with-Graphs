@@ -22,7 +22,8 @@ class model():
 
         self.input_length = 16
         self.output_length = 8
-        self.batch_size = 2
+        self.batch_size = 4
+        self.learning_rate = 0.001
 
         self.vocabulary = vocabulary
         self.voc_size = len(vocabulary)
@@ -50,8 +51,11 @@ class model():
 
     def make_inputs(self):
 
-        # Padded graph node sub-token sequences
-        self.placeholders['node_token_ids'] = tf.placeholder(tf.int32, [None, self.input_length])
+        # Node token sequences
+        self.placeholders['unique_node_labels'] = tf.placeholder(name='unique_labels',shape=[None, self.input_length],dtype=tf.int32 )
+        self.placeholders['unique_node_labels_mask'] = tf.placeholder(name='unique_node_labels_mask',shape=[None, self.input_length],dtype=tf.float32)
+        self.placeholders['unique_label_indices'] = tf.placeholder(name='unique_label_indices', shape=[None], dtype=tf.int32)
+
 
         # Graph adjacency lists
         self.placeholders['adjacency_lists'] = [tf.placeholder(tf.int32, [None, 2]) for _ in range(self.params['n_edge_types'])]
@@ -78,21 +82,41 @@ class model():
 
 
 
+    def make_initial_node_representation(self):
+
+        # Compute the embedding of input node sub-tokens
+        self.embedding_encoder = tf.get_variable('embedding_encoder', [self.voc_size, self.embedding_size])
+
+        subtoken_embedding = tf.nn.embedding_lookup(params=self.embedding_encoder, ids=self.placeholders['unique_node_labels'])
+
+        subtoken_ids_mask = tf.reshape(self.placeholders['unique_node_labels_mask'], [-1, self.input_length, 1])
+
+        subtoken_embedding = subtoken_ids_mask * subtoken_embedding
+
+        unique_label_representations = tf.reduce_sum(subtoken_embedding, axis=1)
+
+        num_subtokens = tf.reduce_sum(subtoken_ids_mask, axis=1)
+
+        unique_label_representations /= num_subtokens
+
+        node_label_representations = tf.gather(params=unique_label_representations,
+                                               indices=self.placeholders['unique_label_indices'])
+
+        return node_label_representations
+
+
+
     def make_model(self):
 
         self.make_inputs()
 
-        # Compute the embedding of input node sub-tokens
-        self.embedding_encoder = tf.get_variable('embedding_encoder', [self.voc_size, self.embedding_size])
-        self.embedding_inputs = tf.nn.embedding_lookup(self.embedding_encoder, self.placeholders['node_token_ids'])
-
         # Average the sub-token embeddings for every node
-        self.placeholders['averaged_initial_representation'] = tf.reduce_mean(self.embedding_inputs, axis=1)
+        self.placeholders['initial_representation'] = self.make_initial_node_representation()
 
         # Run graph through GGNN
         self.gnn_model = SparseGGNN(self.params)
         self.placeholders['gnn_representation'] = self.gnn_model.sparse_gnn_layer(1.0,
-                                                                        self.placeholders['averaged_initial_representation'],
+                                                                        self.placeholders['initial_representation'],
                                                                         self.placeholders['adjacency_lists'],
                                                                         self.placeholders['num_incoming_edges_per_type'],
                                                                         self.placeholders['num_outgoing_edges_per_type'],
@@ -171,7 +195,7 @@ class model():
         self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, 5.0)
 
         # Optimization
-        self.optimizer = tf.train.AdamOptimizer(0.0001)
+        self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
         self.train_step = self.optimizer.apply_gradients(zip(self.clipped_gradients, self.train_vars))
 
 
@@ -207,6 +231,9 @@ class model():
             node_rep_copy[variable_node_id, 0] = self.slot_id
 
 
+        node_rep_mask = node_rep_copy != self.pad_token
+
+
         target_mask = np.zeros((1, self.output_length))
 
         variable_representation = node_representation[variable_node_ids[0]][:self.output_length]
@@ -235,9 +262,17 @@ class model():
             decoder_targets = np.zeros((1, self.output_length))
 
 
+
+        unique_label_subtokens, unique_label_indices, unique_label_inverse_indices = \
+            np.unique(node_rep_copy, return_index=True, return_inverse=True, axis=0)
+
+
         # Create the sample graph
         graph_sample = {
-            self.placeholders['node_token_ids']: node_rep_copy,
+            self.placeholders['unique_node_labels']: unique_label_subtokens,
+            self.placeholders['unique_node_labels_mask']: node_rep_mask[unique_label_indices],
+            self.placeholders['unique_label_indices']: unique_label_inverse_indices,
+
             self.placeholders['num_incoming_edges_per_type']: incoming_edges,
             self.placeholders['num_outgoing_edges_per_type']: outgoing_edges,
             self.placeholders['decoder_targets']: decoder_targets,
@@ -323,7 +358,6 @@ class model():
     def make_batch(self, graph_samples):
 
         node_offset = 0
-        node_representations = []
         adj_lists = [[] for _ in range(self.params['n_edge_types'])]
         num_incoming_edges_per_type = []
         num_outgoing_edges_per_type = []
@@ -332,12 +366,17 @@ class model():
         decoder_targets_length = []
         decoder_masks = []
         slot_ids = []
+        label_indices = []
+        label_masks = []
+        unique_labels = []
 
         for graph_sample in graph_samples:
 
-            num_nodes_in_graph = len(graph_sample[self.placeholders['node_token_ids']])
-            node_representations.append(graph_sample[self.placeholders['node_token_ids']])
+            num_nodes_in_graph = len(graph_sample[self.placeholders['unique_label_indices']])
 
+            label_indices.append(graph_sample[self.placeholders['unique_node_labels']])
+            label_masks.append(graph_sample[self.placeholders['unique_node_labels_mask']])
+            unique_labels.append(graph_sample[self.placeholders['unique_label_indices']])
 
             for i in range(self.params['n_edge_types']):
                 adj_lists[i].append(graph_sample[self.placeholders['adjacency_lists'][i]] + node_offset)
@@ -353,8 +392,13 @@ class model():
             node_offset += num_nodes_in_graph
 
 
+
+
         batch_sample = {
-            self.placeholders['node_token_ids']: np.vstack(node_representations),
+            self.placeholders['unique_node_labels']: np.vstack(label_indices),
+            self.placeholders['unique_node_labels_mask']: np.vstack(label_masks),
+            self.placeholders['unique_label_indices']: np.hstack(unique_labels),
+
             self.placeholders['num_incoming_edges_per_type']: np.vstack(num_incoming_edges_per_type),
             self.placeholders['num_outgoing_edges_per_type']: np.vstack(num_outgoing_edges_per_type),
             self.placeholders['decoder_targets']: np.vstack(decoder_targets),
@@ -400,7 +444,6 @@ class model():
 
     def train(self, corpus_path, n_epochs):
 
-        n_epochs = 60
         train_samples, _ = self.get_samples(corpus_path)
         train_samples, _ = self.make_batch_samples(train_samples, _)
         losses = []
@@ -491,7 +534,7 @@ class model():
 def main():
 
   # Training:
-  n_train_epochs = 20
+  n_train_epochs = 40
   vocabulary = vocabulary_extractor.create_vocabulary_from_corpus(train_path, token_path)
   m = model('train', vocabulary)
   m.train(train_path, n_train_epochs)
@@ -524,8 +567,6 @@ main()
 # plt.ylabel('Accuracy')
 # plt.title('Training Data Accuracy')
 # plt.show()
-
-
 
 
 
