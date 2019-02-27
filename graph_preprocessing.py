@@ -64,6 +64,29 @@ def get_var_nodes_map(graph, id_to_index_map):
 
 
 
+# Obtain map from symbol_var node id to all corresponding variable identifier tokens
+def get_method_nodes_map(graph, id_to_index_map):
+
+    method_nodes_map = defaultdict(list)
+
+    # Extract node ids of all identifier tokens
+    identifier_token_node_ids = [node.id for node in graph.node if node.type == FeatureNode.IDENTIFIER_TOKEN]
+
+    # Extract node ids of all symbol variable nodes
+    method_node_ids = [node.id for node in graph.node if node.type == FeatureNode.SYMBOL_MTH]
+
+
+    # Assume all identifier nodes are direct descendants of a symbol method node
+    for edge in graph.edge:
+        if edge.sourceId in method_node_ids and edge.destinationId in identifier_token_node_ids:
+            method_nodes_map[edge.sourceId].append(id_to_index_map[edge.destinationId])
+
+    return method_nodes_map
+
+
+
+
+
 def compute_initial_node_representation(nodes, seq_length, pad_token, vocabulary):
 
     node_representations = np.array([vocabulary.get_id_or_unk_multiple(split_identifier_into_parts(node.contents),
