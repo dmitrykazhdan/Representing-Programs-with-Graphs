@@ -55,7 +55,7 @@ def load_vocabulary(token_path):
 
 def __create_voc_from_tokens(all_sub_tokens):
 
-    vocabulary = Vocabulary.create_vocabulary(all_sub_tokens, max_size=1000, count_threshold=0,
+    vocabulary = Vocabulary.create_vocabulary(all_sub_tokens, max_size=100000, count_threshold=0,
                                                    add_unk=True, add_pad=True)
 
     return vocabulary
