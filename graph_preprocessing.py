@@ -19,179 +19,77 @@ def get_used_edges_type():
 
 def get_used_nodes_type():
 
-    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN,
-                       FeatureNode.FAKE_AST, FeatureNode.COMMENT_LINE, FeatureNode.COMMENT_BLOCK]
+    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN]
 
     return used_node_types
 
 
 
-# Only retain nodes and edges of specified types
-def filter_graph(graph):
+
+
+def compute_sample_data(graph, seq_length, pad_token, vocabulary):
 
     used_node_types = get_used_nodes_type()
     used_edge_types = get_used_edges_type()
 
-
-    filtered_nodes = [node for node in graph.node if node.type in used_node_types]
-    filtered_node_ids = [node.id for node in filtered_nodes]
-
-    filtered_edges = [edge for edge in graph.edge if edge.type in used_edge_types
-                      and edge.sourceId in filtered_node_ids
-                      and edge.destinationId in filtered_node_ids]
-
-    return filtered_nodes, filtered_edges
-
-
-
-
-# Aquire map from node id in the graph to the node index in the node representation matrix
-def get_node_id_to_index_map(nodes):
-
-    id_to_index_map = {}
-
-    ind = 0
-    for node in nodes:
-        id_to_index_map[node.id] = ind
-        ind += 1
-
-    return id_to_index_map
-
-
-
-# Obtain map from symbol_var node id to all corresponding variable identifier tokens
-def get_var_nodes_map(graph, id_to_index_map):
-
+    node_representations = []
     var_nodes_map = defaultdict(list)
+    id_to_index_map = {}
+    identifier_token_node_ids = []
+    symbol_var_node_ids = []
+    ind = 0
 
-    # Extract node ids of all identifier tokens
-    identifier_token_node_ids = [node.id for node in graph.node if node.type == FeatureNode.IDENTIFIER_TOKEN]
+    for node in graph.node:
+        if node.type in used_node_types:
+            node_representation = vocabulary.get_id_or_unk_multiple(split_identifier_into_parts(node.contents), seq_length, pad_token)
+            node_representations.append(node_representation)
+            id_to_index_map[node.id] = ind
+            ind += 1
 
-    # Extract node ids of all symbol variable nodes
-    symbol_var_node_ids = [node.id for node in graph.node if node.type == FeatureNode.SYMBOL_VAR]
+        if node.type == FeatureNode.IDENTIFIER_TOKEN:
+            identifier_token_node_ids.append(node.id)
+        elif node.type == FeatureNode.SYMBOL_VAR:
+            symbol_var_node_ids.append(node.id)
 
 
-    # All variable identifier nodes are direct descendants of the symbol variable node
+    n_nodes = len(node_representations)
+    n_types = len(used_edge_types)
+    node_representations = np.array(node_representations)
+    num_incoming_edges_per_type = np.zeros((n_nodes, n_types))
+    num_outgoing_edges_per_type = np.zeros((n_nodes, n_types))
+    adj_lists = defaultdict(list)
+
     for edge in graph.edge:
+        if edge.type in used_edge_types \
+                and edge.sourceId in id_to_index_map \
+                and edge.destinationId in id_to_index_map:
+
+            type_id = used_edge_types.index(edge.type)
+            adj_lists[type_id].append([id_to_index_map[edge.sourceId], id_to_index_map[edge.destinationId]])
+            num_incoming_edges_per_type[id_to_index_map[edge.destinationId], type_id] += 1
+            num_outgoing_edges_per_type[id_to_index_map[edge.sourceId], type_id] += 1
+
         if edge.sourceId in symbol_var_node_ids and edge.destinationId in identifier_token_node_ids:
             var_nodes_map[edge.sourceId].append(id_to_index_map[edge.destinationId])
 
-    return var_nodes_map
-
-
-
-
-# Obtain map from symbol_var node id to all corresponding variable identifier tokens
-def get_method_nodes_map(graph, id_to_index_map):
-
-    method_nodes_map = defaultdict(list)
-
-    # Extract node ids of all identifier tokens
-    identifier_token_node_ids = [node.id for node in graph.node if node.type == FeatureNode.IDENTIFIER_TOKEN]
-
-    # Extract node ids of all symbol variable nodes
-    method_node_ids = [node.id for node in graph.node if node.type == FeatureNode.SYMBOL_MTH]
-
-
-    # Assume all identifier nodes are direct descendants of a symbol method node
-    for edge in graph.edge:
-        if edge.sourceId in method_node_ids and edge.destinationId in identifier_token_node_ids:
-            method_nodes_map[edge.sourceId].append(id_to_index_map[edge.destinationId])
-
-    return method_nodes_map
-
-
-
-
-
-def compute_initial_node_representation(nodes, seq_length, pad_token, vocabulary):
-
-    node_representations = np.array([vocabulary.get_id_or_unk_multiple(split_identifier_into_parts(node.contents),
-                                                                            seq_length, pad_token)
-                                                                        for node in nodes])
-
-    return node_representations
-
-
-
-
-def compute_adjacency_lists(edges, id_to_index_map):
-
-    adj_lists = defaultdict(list)
-    used_edge_types = get_used_edges_type()
-
-    # Note: assume edges are already filtered by type
-    for edge in edges:
-        type_id = used_edge_types.index(edge.type)
-        adj_lists[type_id].append([id_to_index_map[edge.sourceId], id_to_index_map[edge.destinationId]])
 
 
     final_adj_lists = {edge_type: np.array(sorted(adj_list), dtype=np.int32)
                        for edge_type, adj_list in adj_lists.items()}
-
-
 
     # Add empty entries for types with no adjacency lists
     for i in range(len(used_edge_types)):
         if i not in final_adj_lists:
             final_adj_lists[i] = np.zeros((0, 2), dtype=np.int32)
 
-    return final_adj_lists
+
+    return var_nodes_map, node_representations, final_adj_lists, \
+           num_incoming_edges_per_type, num_outgoing_edges_per_type
 
 
 
 
 
-def compute_edges_per_type(n_nodes, adj_lists):
-
-    n_types = len(adj_lists)
-    num_incoming_edges_per_type = np.zeros((n_nodes, n_types))
-    num_outgoing_edges_per_type = np.zeros((n_nodes, n_types))
-
-    for type_id, edge_type in enumerate(adj_lists):
-
-        adj_list = adj_lists[edge_type]
-
-        for edge in adj_list:
-            num_incoming_edges_per_type[edge[1], type_id] += 1
-            num_outgoing_edges_per_type[edge[0], type_id] += 1
 
 
 
-    return num_incoming_edges_per_type, num_outgoing_edges_per_type
-
-
-
-# TODO: verify how to get successors/predecessors
-def get_successors(node):
-    return None
-
-def get_predecessors(node):
-    return None
-
-
-def get_var_type(graph, sym_var_node_id):
-
-    id_token_nodes = [n for n in get_successors(sym_var_node_id) if n.type == FeatureNode.IDENTIFIER_TOKEN]
-
-    ast_parent = None
-
-    for id_toke_node in id_token_nodes:
-        for parent in get_predecessors(id_toke_node):
-            if parent.type == FeatureNode.AST_ELEMENT and parent.contents == "VARIABLE":
-                ast_parent = parent
-                break
-
-        if ast_parent != None: break
-
-    if ast_parent == None: raise ValueError('AST_ELEMENT VARIABLE node not found...')
-
-
-    fake_ast_type = [n for n in get_successors(ast_parent)
-                     if n.type == FeatureNode.FAKE_AST and n.contents == "TYPE"][0]
-
-    fake_ast_type_succ = get_successors(fake_ast_type)[0]
-
-    type = [n.contents for n in get_successors(fake_ast_type_succ) if n.type == FeatureNode.TYPE][0]
-
-    return type
