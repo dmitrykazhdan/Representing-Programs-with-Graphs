@@ -162,36 +162,3 @@ def compute_edges_per_type(n_nodes, adj_lists):
 
 
 
-# TODO: verify how to get successors/predecessors
-def get_successors(node):
-    return None
-
-def get_predecessors(node):
-    return None
-
-
-def get_var_type(graph, sym_var_node_id):
-
-    id_token_nodes = [n for n in get_successors(sym_var_node_id) if n.type == FeatureNode.IDENTIFIER_TOKEN]
-
-    ast_parent = None
-
-    for id_toke_node in id_token_nodes:
-        for parent in get_predecessors(id_toke_node):
-            if parent.type == FeatureNode.AST_ELEMENT and parent.contents == "VARIABLE":
-                ast_parent = parent
-                break
-
-        if ast_parent != None: break
-
-    if ast_parent == None: raise ValueError('AST_ELEMENT VARIABLE node not found...')
-
-
-    fake_ast_type = [n for n in get_successors(ast_parent)
-                     if n.type == FeatureNode.FAKE_AST and n.contents == "TYPE"][0]
-
-    fake_ast_type_succ = get_successors(fake_ast_type)[0]
-
-    type = [n.contents for n in get_successors(fake_ast_type_succ) if n.type == FeatureNode.TYPE][0]
-
-    return type
