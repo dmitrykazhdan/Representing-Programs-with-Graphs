@@ -2,7 +2,7 @@ import os
 import vocabulary_extractor
 from random import shuffle
 from shutil import copyfile
-import model
+from model import model
 
 
 # Relevant Paths:
@@ -18,15 +18,15 @@ def main():
 
   # Training:
   vocabulary = vocabulary_extractor.create_vocabulary_from_corpus(train_path, token_path)
-  m = model('train', vocabulary)
-  n_train_epochs = 60
+  m = model(mode='train', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
+  n_train_epochs = 40
   m.train(train_path, n_train_epochs)
 
 
 
   # Inference
   vocabulary = vocabulary_extractor.load_vocabulary(token_path)
-  m = model('infer', vocabulary)
+  m = model(mode='infer', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
   m.infer(test_path)
 
 
