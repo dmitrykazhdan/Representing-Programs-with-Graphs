@@ -6,44 +6,6 @@ from random import shuffle
 from shutil import copyfile
 from model import model
 
-
-class model():
-
-
-    # Generate training/test samples from a graph file
-    def create_samples(self, filepath):
-
-        with open(filepath, "rb") as f:
-
-            g = Graph()
-            g.ParseFromString(f.read())
-
-            filtered_nodes, filtered_edges = graph_preprocessing.filter_graph(g)
-
-            id_to_index_map = graph_preprocessing.get_node_id_to_index_map(filtered_nodes)
-
-            variable_node_ids = graph_preprocessing.get_var_nodes_map(g, id_to_index_map)
-
-            adjacency_lists = graph_preprocessing.compute_adjacency_lists(filtered_edges, id_to_index_map)
-
-            node_representations = graph_preprocessing.compute_initial_node_representation(filtered_nodes, self.input_length,
-                                                                                           self.pad_token, self.vocabulary)
-
-            incoming_edges_per_type, outgoing_edges_per_type = \
-                graph_preprocessing.compute_edges_per_type(len(node_representations), adjacency_lists)
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Relevant Paths:
 corpus_path = "/Users/AdminDK/Dropbox/Part III Modules/R252 Machine Learning for Programming/corpus/r252-corpus-features"
 checkpoint_path = "/Users/AdminDK/Dropbox/Part III Modules/R252 Machine Learning for Programming/Project/checkpoint/train.ckpt"
