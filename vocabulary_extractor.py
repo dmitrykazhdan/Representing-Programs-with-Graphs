@@ -3,12 +3,14 @@ from graph_pb2 import Graph
 from dpu_utils.codeutils import split_identifier_into_parts
 from dpu_utils.mlutils import Vocabulary
 import pickle
+import graph_preprocessing
 
 
 # Create vocabulary using the training corpus
 def create_vocabulary_from_corpus(training_corpus_path, output_token_path=None):
 
     all_sub_tokens = []
+    node_types = graph_preprocessing.get_used_nodes_type()
 
     # Extract all subtokens from all nodes in all graphs in the corpus
     for dirpath, dirs, files in os.walk(training_corpus_path):
@@ -21,14 +23,14 @@ def create_vocabulary_from_corpus(training_corpus_path, output_token_path=None):
                     g.ParseFromString(f.read())
 
                     for n in g.node:
-                        all_sub_tokens += split_identifier_into_parts(n.contents)
+                        if n.type in node_types:
+                            all_sub_tokens += split_identifier_into_parts(n.contents)
 
     all_sub_tokens = list(set(all_sub_tokens))
 
     # Add special sequence-processing tokens
     all_sub_tokens.append('<SLOT>')
     all_sub_tokens.append('sos_token')
-    all_sub_tokens.append('eos_token')
     all_sub_tokens.sort()
 
 
