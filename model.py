@@ -17,8 +17,8 @@ class model():
         self.checkpoint_path = checkpoint_path
         self.max_node_seq_len = 16
         self.max_var_seq_len = 8
-        self.max_slots = 16
-        self.batch_size = 4
+        self.max_slots = 64
+        self.batch_size = 64
         self.learning_rate = 0.001
         self.ggnn_dropout = 0.9
         self.ggnn_params = self.get_gnn_params()
@@ -48,6 +48,9 @@ class model():
 
             init_op = tf.group(tf.global_variables_initializer(),tf.local_variables_initializer())
             self.sess.run(init_op)
+
+
+        print ("Model built successfully...")
 
 
 
@@ -202,10 +205,6 @@ class model():
 
 
 
-        print ("Model built successfully...")
-
-
-
     def make_train_step(self):
 
         crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'], logits=self.decoder_logits_train)
@@ -236,8 +235,12 @@ class model():
 
         node_rep_mask = slotted_node_representation != self.pad_token
 
+        print("Copied node rep")
+
         unique_label_subtokens, node_label_indices, unique_label_inverse_indices = \
             np.unique(slotted_node_representation, return_index=True, return_inverse=True, axis=0)
+
+        print("Computing unique labels")
 
         slot_ids = np.zeros((1, self.max_slots))
         slot_ids[0, :len(variable_node_ids)] = variable_node_ids
@@ -302,24 +305,20 @@ class model():
             g = Graph()
             g.ParseFromString(f.read())
 
-            filtered_nodes, filtered_edges = graph_preprocessing.filter_graph(g)
-
-            id_to_index_map = graph_preprocessing.get_node_id_to_index_map(filtered_nodes)
-
-            variable_node_ids = graph_preprocessing.get_var_nodes_map(g, id_to_index_map)
-
-            adjacency_lists = graph_preprocessing.compute_adjacency_lists(filtered_edges, id_to_index_map)
-
-            node_representations = graph_preprocessing.compute_initial_node_representation(filtered_nodes, self.max_node_seq_len,
+            variable_node_ids, node_representations, adjacency_lists, \
+            incoming_edges_per_type, outgoing_edges_per_type = graph_preprocessing.compute_sample_data(g, self.max_node_seq_len,
                                                                                            self.pad_token, self.vocabulary)
 
-            incoming_edges_per_type, outgoing_edges_per_type = \
-                graph_preprocessing.compute_edges_per_type(len(node_representations), adjacency_lists)
-
+            print("Pre-processed graph")
 
             samples, labels = [], []
 
-            for var_root_node_id in variable_node_ids:
+
+            var_ids = list(variable_node_ids.keys())
+            shuffle(var_ids)
+
+
+            for var_root_node_id in var_ids:
 
                 new_sample, new_label = self.create_sample(variable_node_ids[var_root_node_id],
                                                            node_representations, adjacency_lists,
@@ -327,6 +326,8 @@ class model():
 
                 samples.append(new_sample)
                 labels.append(new_label)
+
+                print("Size: ", new_sample[self.placeholders['node_label_indices']].shape[0])
 
             return samples, labels
 
@@ -346,7 +347,8 @@ class model():
         for i in range(n_batches - 1):
             start = i * self.batch_size
             end = min(start + self.batch_size, len(graph_samples))
-            batch_samples.append(self.make_batch(graph_samples[start:end]))
+            new_batch = self.make_batch(graph_samples[start:end])
+            batch_samples.append(new_batch)
             labels += all_labels[start:end]
 
         return batch_samples, labels
@@ -419,10 +421,16 @@ class model():
             for filename in files:
                 if filename[-5:] == 'proto':
                     fname = os.path.join(dirpath, filename)
-                    new_samples, new_labels = self.create_samples(fname)
 
-                    graph_samples += new_samples
-                    labels += new_labels
+                    f_size = os.path.getsize(fname)/1000
+
+                    if f_size > 100 and f_size < 400:
+                        new_samples, new_labels = self.create_samples(fname)
+
+                        graph_samples += new_samples
+                        labels += new_labels
+
+                    print("Processed new file...")
 
         return graph_samples, labels
 
@@ -431,7 +439,13 @@ class model():
     def train(self, corpus_path, n_epochs):
 
         train_samples, _ = self.get_samples(corpus_path)
+
+        print("Obtained samples...")
+
         train_samples, _ = self.make_batch_samples(train_samples, _)
+
+        print("Obtained batches...")
+
         losses = []
 
         print("Train vals: ", _)
