@@ -14,10 +14,19 @@ token_path = "/Users/AdminDK/Desktop/tokens.txt"
 
 
 
+
+# GPU paths:
+# checkpoint_path = "/home/dk525/checkpoint/train.ckpt"
+# train_path = "/home/dk525/test_graphs"
+# test_path = "/home/dk525/test_graphs"
+# token_path = "/home/dk525/tokens.txt"
+
+
 def main():
 
   # Training:
   vocabulary = vocabulary_extractor.create_vocabulary_from_corpus(train_path, token_path)
+  print("Constructed vocabulary...")
   m = model(mode='train', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
   n_train_epochs = 40
   m.train(train_path, n_train_epochs)
@@ -46,7 +55,7 @@ def get_train_and_test(corpus_path, train_path, test_path):
 
 
     # Copy subset of samples into training/testing directories
-    n_samples = 100
+    n_samples = 500
     n_train = round(n_samples * 0.8)
     shuffle(f_names)
 
@@ -66,7 +75,7 @@ def get_train_and_test(corpus_path, train_path, test_path):
 
 
 
-#get_train_and_test(corpus_path, train_path, test_path)
+# get_train_and_test(corpus_path, train_path, test_path)
 
 main()
 
