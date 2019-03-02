@@ -15,10 +15,10 @@ class model():
 
         # Initialize parameter values
         self.checkpoint_path = checkpoint_path
-        self.max_node_seq_len = 16
-        self.max_var_seq_len = 8
-        self.max_slots = 64
-        self.batch_size = 4000
+        self.max_node_seq_len = 32                          # Maximum number of node subtokens
+        self.max_var_seq_len = 16                           # Maximum number of variable subtokens
+        self.max_slots = 128                                # Maximum number of variable occurrences
+        self.batch_size = 1000                              # Number of nodes per batch sample
         self.learning_rate = 0.001
         self.ggnn_dropout = 0.9
         self.ggnn_params = self.get_gnn_params()
@@ -46,7 +46,7 @@ class model():
             if self.mode == 'train':
                 self.make_train_step()
 
-            init_op = tf.group(tf.global_variables_initializer(),tf.local_variables_initializer())
+            init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
             self.sess.run(init_op)
 
 
@@ -204,6 +204,7 @@ class model():
 
 
 
+
     def make_train_step(self):
 
         crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'], logits=self.decoder_logits_train)
@@ -237,9 +238,11 @@ class model():
         unique_label_subtokens, node_label_indices, unique_label_inverse_indices = \
             np.unique(slotted_node_representation, return_index=True, return_inverse=True, axis=0)
 
+
         slot_ids = np.zeros((1, self.max_slots))
+        slot_mask = np.zeros((1, self.max_slots))
         slot_ids[0, :len(variable_node_ids)] = variable_node_ids
-        slot_mask = slot_ids != 0
+        slot_mask[0, :len(variable_node_ids)] = 1
 
         target_mask = np.zeros((1, self.max_var_seq_len))
 
@@ -329,14 +332,14 @@ class model():
 
         zipped = list(zip(graph_samples, labels))
         shuffle(zipped)
-        graph_samples, labels = zip(*zipped)
+        graph_samples, all_labels = zip(*zipped)
+
         max_nodes_in_batch = self.batch_size
-
-        batch_samples = []
+        batch_samples, labels = [], []
         current_batch = []
-        nodes_in_batch = 0
+        nodes_in_curr_batch = 0
 
-        for graph_sample in graph_samples:
+        for i, graph_sample in enumerate(graph_samples):
 
             num_nodes_in_sample = graph_sample[self.placeholders['node_label_indices']].shape[0]
 
@@ -345,15 +348,21 @@ class model():
                 continue
 
             # Add to current batch if there is space
-            if num_nodes_in_sample + nodes_in_batch < max_nodes_in_batch:
+            if num_nodes_in_sample + nodes_in_curr_batch < max_nodes_in_batch:
                 current_batch.append(graph_sample)
-                nodes_in_batch += num_nodes_in_sample
+                nodes_in_curr_batch += num_nodes_in_sample
 
             # Otherwise start creating a new batch
             else:
                 batch_samples.append(self.make_batch(current_batch))
                 current_batch = [graph_sample]
-                nodes_in_batch = 0
+                nodes_in_curr_batch = num_nodes_in_sample
+
+            labels.append(all_labels[i])
+
+
+        if len(current_batch) > 0:
+            batch_samples.append(self.make_batch(current_batch))
 
         return batch_samples, labels
 
@@ -370,6 +379,7 @@ class model():
         adj_lists = [[] for _ in range(self.ggnn_params['n_edge_types'])]
         start_tokens = np.ones((len(graph_samples))) * self.sos_token
 
+
         for graph_sample in graph_samples:
 
             num_nodes_in_graph = len(graph_sample[self.placeholders['node_label_indices']])
@@ -377,7 +387,7 @@ class model():
             label_indices.append(graph_sample[self.placeholders['unique_node_labels']])
             label_masks.append(graph_sample[self.placeholders['unique_node_labels_mask']])
             unique_labels.append(graph_sample[self.placeholders['node_label_indices']])
-            slot_ids.append(graph_sample[self.placeholders['slot_ids']])
+            slot_ids.append(graph_sample[self.placeholders['slot_ids']] + graph_sample[self.placeholders['slot_ids_mask']] * node_offset)
             slot_masks.append(graph_sample[self.placeholders['slot_ids_mask']])
             num_incoming_edges_per_type.append(graph_sample[self.placeholders['num_incoming_edges_per_type']])
             num_outgoing_edges_per_type.append(graph_sample[self.placeholders['num_outgoing_edges_per_type']])
@@ -438,6 +448,8 @@ class model():
                         labels += new_labels
 
 
+        graph_samples, labels = self.make_batch_samples(graph_samples, labels)
+
         return graph_samples, labels
 
 
@@ -446,11 +458,7 @@ class model():
 
         train_samples, _ = self.get_samples(corpus_path)
 
-        print("Obtained samples...")
-
-        train_samples, _ = self.make_batch_samples(train_samples, _)
-
-        print("Obtained batches...")
+        print("Obtained samples...", len(train_samples))
 
         losses = []
 
@@ -480,6 +488,9 @@ class model():
 
         n_correct = 0
 
+        print("Predictions: ", len(predictions))
+        print("Test labels: ", len(test_labels))
+
         for i in range(len(predictions)):
 
             print("Predicted: ", predictions[i])
@@ -499,7 +510,6 @@ class model():
     def infer(self, corpus_path):
 
         test_samples, test_labels = self.get_samples(corpus_path)
-        test_samples, test_labels = self.make_batch_samples(test_samples, test_labels)
 
         print("Test vals: ", test_labels)
 
@@ -525,6 +535,8 @@ class model():
 
                     predicted_names.append(predicted_name)
 
+
+            print('predicted: ', len(predicted_names))
 
             accuracy = self.process_predictions(predicted_names, test_labels)
 
