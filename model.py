@@ -18,7 +18,7 @@ class model():
         self.max_node_seq_len = 16
         self.max_var_seq_len = 8
         self.max_slots = 64
-        self.batch_size = 1
+        self.batch_size = 4000
         self.learning_rate = 0.001
         self.ggnn_dropout = 0.9
         self.ggnn_params = self.get_gnn_params()
@@ -89,20 +89,21 @@ class model():
         self.placeholders['num_incoming_edges_per_type'] = tf.placeholder(tf.float32, [None, self.ggnn_params['n_edge_types']])
         self.placeholders['num_outgoing_edges_per_type'] = tf.placeholder(tf.float32, [None, self.ggnn_params['n_edge_types']])
 
+        # Actual variable name, as a padded sequence of tokens
+        self.placeholders['decoder_targets'] = tf.placeholder(dtype=tf.int32, shape=(None, self.max_var_seq_len), name='dec_targets')
+        self.placeholders['decoder_inputs'] = tf.placeholder(shape=(self.max_var_seq_len, self.placeholders['decoder_targets'].shape[0]), dtype=tf.int32, name='dec_inputs')
+        self.placeholders['sos_tokens'] = tf.placeholder(shape=(self.placeholders['decoder_targets'].shape[0]), dtype=tf.int32, name='sos_tokens')
 
         # Node identifiers of all graph nodes of the target variable
-        self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [self.batch_size, self.max_slots], name='slot_ids')
-        self.placeholders['slot_ids_mask'] = tf.placeholder(tf.float32, [self.batch_size, self.max_slots], name='slot_mask')
+        self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [self.placeholders['decoder_targets'].shape[0], self.max_slots], name='slot_ids')
+        self.placeholders['slot_ids_mask'] = tf.placeholder(tf.float32, [self.placeholders['decoder_targets'].shape[0], self.max_slots], name='slot_mask')
 
-        # Actual variable name, as a padded sequence of tokens
-        self.placeholders['decoder_inputs'] = tf.placeholder(shape=(self.max_var_seq_len, self.batch_size), dtype=tf.int32, name='dec_inputs')
-        self.placeholders['decoder_targets'] = tf.placeholder(dtype=tf.int32, shape=(self.batch_size, self.max_var_seq_len), name='dec_targets')
 
         # Specify output sequence lengths
-        self.placeholders['decoder_targets_length'] = tf.placeholder(shape=(self.batch_size), dtype=tf.int32)
+        self.placeholders['decoder_targets_length'] = tf.placeholder(shape=(self.placeholders['decoder_targets'].shape[0]), dtype=tf.int32)
 
         # 0/1 matrix masking out tensor elements outside of the sequence length
-        self.placeholders['target_mask'] = tf.placeholder(tf.float32, [self.batch_size, self.max_var_seq_len], name='target_mask')
+        self.placeholders['target_mask'] = tf.placeholder(tf.float32, [self.placeholders['decoder_targets'].shape[0], self.max_var_seq_len], name='target_mask')
 
 
 
@@ -185,13 +186,11 @@ class model():
 
         elif self.mode == 'infer':
 
-            # Define inference sequence decoder
-            start_tokens = tf.fill([self.batch_size], self.sos_token)
             end_token = self.pad_token
             max_iterations = self.max_var_seq_len
 
             inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(embedding_decoder,
-                                                              start_tokens=start_tokens, end_token=end_token)
+                                                              start_tokens=self.placeholders['sos_tokens'], end_token=end_token)
 
 
             inference_decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell, inference_helper,
@@ -244,6 +243,9 @@ class model():
 
         target_mask = np.zeros((1, self.max_var_seq_len))
 
+        # Define inference sequence decoder
+        start_tokens = np.ones((1)) * self.sos_token
+
         if self.mode == 'train':
 
             # Set decoder inputs and targets
@@ -274,6 +276,7 @@ class model():
             self.placeholders['num_outgoing_edges_per_type']: outgoing_edges,
             self.placeholders['decoder_targets']: decoder_targets,
             self.placeholders['decoder_inputs']: decoder_inputs,
+            self.placeholders['sos_tokens']: start_tokens,
             self.placeholders['decoder_targets_length']: np.ones((1)) * self.max_var_seq_len,
             self.placeholders['target_mask']: target_mask
         }
@@ -326,18 +329,31 @@ class model():
 
         zipped = list(zip(graph_samples, labels))
         shuffle(zipped)
-        graph_samples, all_labels = zip(*zipped)
+        graph_samples, labels = zip(*zipped)
+        max_nodes_in_batch = self.batch_size
 
-        batch_samples, labels = [], []
+        batch_samples = []
+        current_batch = []
+        nodes_in_batch = 0
 
-        n_batches = math.ceil(len(graph_samples)/self.batch_size)
+        for graph_sample in graph_samples:
 
-        for i in range(n_batches - 1):
-            start = i * self.batch_size
-            end = min(start + self.batch_size, len(graph_samples))
-            new_batch = self.make_batch(graph_samples[start:end])
-            batch_samples.append(new_batch)
-            labels += all_labels[start:end]
+            num_nodes_in_sample = graph_sample[self.placeholders['node_label_indices']].shape[0]
+
+            # Skip sample if it is to big
+            if num_nodes_in_sample > max_nodes_in_batch:
+                continue
+
+            # Add to current batch if there is space
+            if num_nodes_in_sample + nodes_in_batch < max_nodes_in_batch:
+                current_batch.append(graph_sample)
+                nodes_in_batch += num_nodes_in_sample
+
+            # Otherwise start creating a new batch
+            else:
+                batch_samples.append(self.make_batch(current_batch))
+                current_batch = [graph_sample]
+                nodes_in_batch = 0
 
         return batch_samples, labels
 
@@ -352,6 +368,7 @@ class model():
         num_incoming_edges_per_type, num_outgoing_edges_per_type = [], []
         decoder_targets, decoder_inputs, decoder_targets_length, decoder_masks = [], [], [], []
         adj_lists = [[] for _ in range(self.ggnn_params['n_edge_types'])]
+        start_tokens = np.ones((len(graph_samples))) * self.sos_token
 
         for graph_sample in graph_samples:
 
@@ -385,6 +402,7 @@ class model():
             self.placeholders['num_outgoing_edges_per_type']: np.vstack(num_outgoing_edges_per_type),
             self.placeholders['decoder_targets']: np.vstack(decoder_targets),
             self.placeholders['decoder_inputs']: np.hstack(decoder_inputs),
+            self.placeholders['sos_tokens']: start_tokens,
             self.placeholders['decoder_targets_length']: np.hstack(decoder_targets_length),
             self.placeholders['target_mask']: np.vstack(decoder_masks)
         }
@@ -412,9 +430,7 @@ class model():
 
                     f_size = os.path.getsize(fname)/1000
 
-                    if f_size < 400:
-
-                        print("Processing file: ", filename)
+                    if f_size > 100 and f_size < 400:
 
                         new_samples, new_labels = self.create_samples(fname)
 
@@ -499,7 +515,7 @@ class model():
 
                 predictions = self.sess.run([self.predictions], feed_dict=graph)[0]
 
-                for i in range(self.batch_size):
+                for i in range(len(predictions)):
 
                     predicted_name = [self.vocabulary.get_name_for_id(token_id) for token_id in predictions[i]]
 
