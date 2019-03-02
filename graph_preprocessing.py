@@ -19,38 +19,96 @@ def get_used_edges_type():
 
 def get_used_nodes_type():
 
-    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN]
+    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN,
+                       FeatureNode.COMMENT_LINE, FeatureNode.COMMENT_BLOCK, FeatureNode.COMMENT_JAVADOC,
+                       FeatureNode.FAKE_AST]
 
     return used_node_types
 
 
 
+def compute_sub_graphs(graph, timesteps, seq_length, pad_token, vocabulary):
+
+    successors = defaultdict(set)
+    predecessors = defaultdict(set)
+    edges = defaultdict(list)
+    nodes = {}
+    sym_var_node_ids = []
+    samples = []
 
 
-def compute_sample_data(graph, seq_length, pad_token, vocabulary):
+    for node in graph.node:
+
+        nodes[node.id] = node
+
+        if node.type == FeatureNode.SYMBOL_VAR:
+            sym_var_node_ids.append(node.id)
+
+
+    for edge in graph.edge:
+        successors[edge.sourceId].add(edge.destinationId)
+        predecessors[edge.destinationId].add(edge.sourceId)
+        edges[edge.sourceId].append(edge)
+
+
+
+    for sym_var_node_id in sym_var_node_ids:
+
+        successor_ids = list(successors[sym_var_node_id])
+        var_identifier_node_ids = [node_id for node_id in successor_ids
+                                if nodes[node_id].type == FeatureNode.IDENTIFIER_TOKEN]
+
+        reachable_node_ids = []
+        successor_ids = [node_id for node_id in var_identifier_node_ids]
+        predecessor_ids = successor_ids
+
+        for _ in range(timesteps):
+            reachable_node_ids += successor_ids
+            reachable_node_ids += predecessor_ids
+            successor_ids = list(set([elem for n_id in successor_ids for elem in list(successors[n_id])]))
+            predecessor_ids = list(set([elem for n_id in predecessor_ids for elem in list(predecessors[n_id])]))
+
+        reachable_node_ids += successor_ids
+        reachable_node_ids += predecessor_ids
+        reachable_node_ids = list(set(reachable_node_ids))
+
+
+        sub_nodes = [nodes[node_id] for node_id in reachable_node_ids]
+        sub_edges =  [edge for node in sub_nodes for edge in edges[node.id]
+                      if edge.sourceId in reachable_node_ids and edge.destinationId in reachable_node_ids]
+
+        sub_graph = (sub_nodes, sub_edges)
+
+        sample_data = compute_sample_data(sub_graph, var_identifier_node_ids, seq_length, pad_token, vocabulary)
+        samples.append(sample_data)
+
+
+    return samples
+
+
+
+
+
+
+
+
+def compute_sample_data(sub_graph, identifier_token_node_ids, seq_length, pad_token, vocabulary):
 
     used_node_types = get_used_nodes_type()
     used_edge_types = get_used_edges_type()
 
     node_representations = []
-    var_nodes_map = defaultdict(list)
     id_to_index_map = {}
-    identifier_token_node_ids = []
-    symbol_var_node_ids = []
     ind = 0
 
-    for node in graph.node:
+    (sub_nodes, sub_edges) = sub_graph
+
+    for node in sub_nodes:
         if node.type in used_node_types:
             node_representation = vocabulary.get_id_or_unk_multiple(split_identifier_into_parts(node.contents), seq_length, pad_token)
             node_representations.append(node_representation)
             id_to_index_map[node.id] = ind
             ind += 1
-
-        if node.type == FeatureNode.IDENTIFIER_TOKEN:
-            identifier_token_node_ids.append(node.id)
-        elif node.type == FeatureNode.SYMBOL_VAR:
-            symbol_var_node_ids.append(node.id)
-
 
     n_nodes = len(node_representations)
     n_types = len(used_edge_types)
@@ -59,7 +117,7 @@ def compute_sample_data(graph, seq_length, pad_token, vocabulary):
     num_outgoing_edges_per_type = np.zeros((n_nodes, n_types))
     adj_lists = defaultdict(list)
 
-    for edge in graph.edge:
+    for edge in sub_edges:
         if edge.type in used_edge_types \
                 and edge.sourceId in id_to_index_map \
                 and edge.destinationId in id_to_index_map:
@@ -68,11 +126,6 @@ def compute_sample_data(graph, seq_length, pad_token, vocabulary):
             adj_lists[type_id].append([id_to_index_map[edge.sourceId], id_to_index_map[edge.destinationId]])
             num_incoming_edges_per_type[id_to_index_map[edge.destinationId], type_id] += 1
             num_outgoing_edges_per_type[id_to_index_map[edge.sourceId], type_id] += 1
-
-        if edge.sourceId in symbol_var_node_ids and edge.destinationId in identifier_token_node_ids:
-            var_nodes_map[edge.sourceId].append(id_to_index_map[edge.destinationId])
-
-
 
     final_adj_lists = {edge_type: np.array(sorted(adj_list), dtype=np.int32)
                        for edge_type, adj_list in adj_lists.items()}
@@ -83,8 +136,10 @@ def compute_sample_data(graph, seq_length, pad_token, vocabulary):
             final_adj_lists[i] = np.zeros((0, 2), dtype=np.int32)
 
 
-    return var_nodes_map, node_representations, final_adj_lists, \
-           num_incoming_edges_per_type, num_outgoing_edges_per_type
+    var_identifier_nodes = [id_to_index_map[node_id] for node_id in identifier_token_node_ids]
+
+    return (var_identifier_nodes, node_representations, final_adj_lists, \
+           num_incoming_edges_per_type, num_outgoing_edges_per_type)
 
 
 

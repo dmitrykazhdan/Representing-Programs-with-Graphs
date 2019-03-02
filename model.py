@@ -18,7 +18,7 @@ class model():
         self.max_node_seq_len = 16
         self.max_var_seq_len = 8
         self.max_slots = 64
-        self.batch_size = 64
+        self.batch_size = 2
         self.learning_rate = 0.001
         self.ggnn_dropout = 0.9
         self.ggnn_params = self.get_gnn_params()
@@ -225,6 +225,9 @@ class model():
 
     def create_sample(self, variable_node_ids, node_representation, adj_lists, incoming_edges, outgoing_edges):
 
+
+        print("Var IDs: ", variable_node_ids)
+
         # Retrieve variable token sequence
         var_token_seq = node_representation[variable_node_ids[0]][:self.max_var_seq_len]
 
@@ -305,24 +308,17 @@ class model():
             g = Graph()
             g.ParseFromString(f.read())
 
-            variable_node_ids, node_representations, adjacency_lists, \
-            incoming_edges_per_type, outgoing_edges_per_type = graph_preprocessing.compute_sample_data(g, self.max_node_seq_len,
-                                                                                           self.pad_token, self.vocabulary)
+
+            timesteps = 8
+            graph_samples = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_node_seq_len, self.pad_token, self.vocabulary)
 
             print("Pre-processed graph")
 
             samples, labels = [], []
 
+            for sample in graph_samples:
 
-            var_ids = list(variable_node_ids.keys())
-            shuffle(var_ids)
-
-
-            for var_root_node_id in var_ids:
-
-                new_sample, new_label = self.create_sample(variable_node_ids[var_root_node_id],
-                                                           node_representations, adjacency_lists,
-                                                           incoming_edges_per_type, outgoing_edges_per_type)
+                new_sample, new_label = self.create_sample(*sample)
 
                 samples.append(new_sample)
                 labels.append(new_label)
@@ -424,7 +420,7 @@ class model():
 
                     f_size = os.path.getsize(fname)/1000
 
-                    if f_size > 100 and f_size < 400:
+                    if f_size < 400:
                         new_samples, new_labels = self.create_samples(fname)
 
                         graph_samples += new_samples
