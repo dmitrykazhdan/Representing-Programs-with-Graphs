@@ -18,7 +18,7 @@ class model():
         self.max_node_seq_len = 16
         self.max_var_seq_len = 8
         self.max_slots = 64
-        self.batch_size = 2
+        self.batch_size = 1
         self.learning_rate = 0.001
         self.ggnn_dropout = 0.9
         self.ggnn_params = self.get_gnn_params()
@@ -308,7 +308,6 @@ class model():
             g = Graph()
             g.ParseFromString(f.read())
 
-
             timesteps = 8
             graph_samples = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_node_seq_len, self.pad_token, self.vocabulary)
 
@@ -421,12 +420,14 @@ class model():
                     f_size = os.path.getsize(fname)/1000
 
                     if f_size < 400:
+
+                        print("Processing file: ", filename)
+
                         new_samples, new_labels = self.create_samples(fname)
 
                         graph_samples += new_samples
                         labels += new_labels
 
-                    print("Processed new file...")
 
         return graph_samples, labels
 

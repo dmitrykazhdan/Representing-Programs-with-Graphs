@@ -29,34 +29,44 @@ def get_used_nodes_type():
 
 def compute_sub_graphs(graph, timesteps, seq_length, pad_token, vocabulary):
 
-    successors = defaultdict(set)
-    predecessors = defaultdict(set)
-    edges = defaultdict(list)
-    nodes = {}
+
+    successor_table = defaultdict(set)
+    predecessor_table = defaultdict(set)
+    edge_table = defaultdict(list)
+    node_table = {}
     sym_var_node_ids = []
     samples = []
 
-
     for node in graph.node:
 
-        nodes[node.id] = node
+        node_table[node.id] = node
 
         if node.type == FeatureNode.SYMBOL_VAR:
             sym_var_node_ids.append(node.id)
 
 
     for edge in graph.edge:
-        successors[edge.sourceId].add(edge.destinationId)
-        predecessors[edge.destinationId].add(edge.sourceId)
-        edges[edge.sourceId].append(edge)
+        successor_table[edge.sourceId].add(edge.destinationId)
+        predecessor_table[edge.destinationId].add(edge.sourceId)
+        edge_table[edge.sourceId].append(edge)
 
 
 
     for sym_var_node_id in sym_var_node_ids:
 
-        successor_ids = list(successors[sym_var_node_id])
+        successor_ids = list(successor_table[sym_var_node_id])
+
+        print("Succs: ", successor_ids)
+
+        for succ_id in successor_ids:
+            print ("Type: ", node_table[succ_id].type)
+
+
         var_identifier_node_ids = [node_id for node_id in successor_ids
-                                if nodes[node_id].type == FeatureNode.IDENTIFIER_TOKEN]
+                                if node_table[node_id].type == FeatureNode.IDENTIFIER_TOKEN]
+
+        print("Var id nodes: ", var_identifier_node_ids)
+
 
         reachable_node_ids = []
         successor_ids = [node_id for node_id in var_identifier_node_ids]
