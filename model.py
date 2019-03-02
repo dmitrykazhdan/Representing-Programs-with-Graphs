@@ -225,9 +225,6 @@ class model():
 
     def create_sample(self, variable_node_ids, node_representation, adj_lists, incoming_edges, outgoing_edges):
 
-
-        print("Var IDs: ", variable_node_ids)
-
         # Retrieve variable token sequence
         var_token_seq = node_representation[variable_node_ids[0]][:self.max_var_seq_len]
 
@@ -238,12 +235,8 @@ class model():
 
         node_rep_mask = slotted_node_representation != self.pad_token
 
-        print("Copied node rep")
-
         unique_label_subtokens, node_label_indices, unique_label_inverse_indices = \
             np.unique(slotted_node_representation, return_index=True, return_inverse=True, axis=0)
-
-        print("Computing unique labels")
 
         slot_ids = np.zeros((1, self.max_slots))
         slot_ids[0, :len(variable_node_ids)] = variable_node_ids
