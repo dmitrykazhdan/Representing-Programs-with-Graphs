@@ -18,7 +18,7 @@ class model():
         self.max_node_seq_len = 32                          # Maximum number of node subtokens
         self.max_var_seq_len = 16                           # Maximum number of variable subtokens
         self.max_slots = 128                                # Maximum number of variable occurrences
-        self.batch_size = 2000                               # Number of nodes per batch sample
+        self.batch_size = 2000                              # Number of nodes per batch sample
         self.enable_batching = True
         self.learning_rate = 0.001
         self.ggnn_dropout = 0.9
@@ -329,7 +329,7 @@ class model():
                 samples.append(new_sample)
                 labels.append(new_label)
 
-                print("Size: ", new_sample[self.placeholders['node_label_indices']].shape[0])
+                # print("Size: ", new_sample[self.placeholders['node_label_indices']].shape[0])
 
             return samples, labels
 
@@ -452,12 +452,13 @@ class model():
 
                     f_size = os.path.getsize(fname)/1000
 
-                    if f_size < 800:
+                    if f_size < 2000:
 
                         new_samples, new_labels = self.create_samples(fname)
 
-                        graph_samples += new_samples
-                        labels += new_labels
+                        if len(new_samples) > 0:
+                            graph_samples += new_samples
+                            labels += new_labels
 
 
         graph_samples, labels = self.make_batch_samples(graph_samples, labels)
