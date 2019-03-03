@@ -9,8 +9,8 @@ class SampleMetaInformation():
     def __init__(self, sample_fname, node_id):
         self.fname = sample_fname
         self.node_id = node_id
-        self.var_type = self.__compute_var_type()
-        self.var_usages = self.__compute_var_usages()
+        # self.var_type = self.__compute_var_type()
+        # self.var_usages = self.__compute_var_usages()
 
 
 

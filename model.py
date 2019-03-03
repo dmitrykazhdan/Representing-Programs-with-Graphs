@@ -16,10 +16,11 @@ class model():
 
         # Initialize parameter values
         self.checkpoint_path = checkpoint_path
-        self.max_node_seq_len = 16
-        self.max_var_seq_len = 8
-        self.max_slots = 16
-        self.batch_size = 4
+        self.max_node_seq_len = 32                          # Maximum number of node subtokens
+        self.max_var_seq_len = 16                           # Maximum number of variable subtokens
+        self.max_slots = 128                                # Maximum number of variable occurrences
+        self.batch_size = 2000                              # Number of nodes per batch sample
+        self.enable_batching = True
         self.learning_rate = 0.001
         self.ggnn_dropout = 0.9
         self.ggnn_params = self.get_gnn_params()
@@ -47,8 +48,11 @@ class model():
             if self.mode == 'train':
                 self.make_train_step()
 
-            init_op = tf.group(tf.global_variables_initializer(),tf.local_variables_initializer())
+            init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
             self.sess.run(init_op)
+
+
+        print ("Model built successfully...")
 
 
 
@@ -87,20 +91,21 @@ class model():
         self.placeholders['num_incoming_edges_per_type'] = tf.placeholder(tf.float32, [None, self.ggnn_params['n_edge_types']])
         self.placeholders['num_outgoing_edges_per_type'] = tf.placeholder(tf.float32, [None, self.ggnn_params['n_edge_types']])
 
+        # Actual variable name, as a padded sequence of tokens
+        self.placeholders['decoder_targets'] = tf.placeholder(dtype=tf.int32, shape=(None, self.max_var_seq_len), name='dec_targets')
+        self.placeholders['decoder_inputs'] = tf.placeholder(shape=(self.max_var_seq_len, self.placeholders['decoder_targets'].shape[0]), dtype=tf.int32, name='dec_inputs')
+        self.placeholders['sos_tokens'] = tf.placeholder(shape=(self.placeholders['decoder_targets'].shape[0]), dtype=tf.int32, name='sos_tokens')
 
         # Node identifiers of all graph nodes of the target variable
-        self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [self.batch_size, self.max_slots], name='slot_ids')
-        self.placeholders['slot_ids_mask'] = tf.placeholder(tf.float32, [self.batch_size, self.max_slots], name='slot_mask')
+        self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [self.placeholders['decoder_targets'].shape[0], self.max_slots], name='slot_ids')
+        self.placeholders['slot_ids_mask'] = tf.placeholder(tf.float32, [self.placeholders['decoder_targets'].shape[0], self.max_slots], name='slot_mask')
 
-        # Actual variable name, as a padded sequence of tokens
-        self.placeholders['decoder_inputs'] = tf.placeholder(shape=(self.max_var_seq_len, self.batch_size), dtype=tf.int32, name='dec_inputs')
-        self.placeholders['decoder_targets'] = tf.placeholder(dtype=tf.int32, shape=(self.batch_size, self.max_var_seq_len), name='dec_targets')
 
         # Specify output sequence lengths
-        self.placeholders['decoder_targets_length'] = tf.placeholder(shape=(self.batch_size), dtype=tf.int32)
+        self.placeholders['decoder_targets_length'] = tf.placeholder(shape=(self.placeholders['decoder_targets'].shape[0]), dtype=tf.int32)
 
         # 0/1 matrix masking out tensor elements outside of the sequence length
-        self.placeholders['target_mask'] = tf.placeholder(tf.float32, [self.batch_size, self.max_var_seq_len], name='target_mask')
+        self.placeholders['target_mask'] = tf.placeholder(tf.float32, [self.placeholders['decoder_targets'].shape[0], self.max_var_seq_len], name='target_mask')
 
 
 
@@ -183,13 +188,11 @@ class model():
 
         elif self.mode == 'infer':
 
-            # Define inference sequence decoder
-            start_tokens = tf.fill([self.batch_size], self.sos_token)
             end_token = self.pad_token
             max_iterations = self.max_var_seq_len
 
             inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(embedding_decoder,
-                                                              start_tokens=start_tokens, end_token=end_token)
+                                                              start_tokens=self.placeholders['sos_tokens'], end_token=end_token)
 
 
             inference_decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell, inference_helper,
@@ -203,14 +206,11 @@ class model():
 
 
 
-        print ("Model built successfully...")
-
-
 
     def make_train_step(self):
 
         crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'], logits=self.decoder_logits_train)
-        self.train_loss = tf.reduce_sum(tf.multiply(crossent, self.placeholders['target_mask']))
+        self.train_loss = tf.reduce_sum(crossent * self.placeholders['target_mask'])
 
         # Calculate and clip gradients
         train_vars = tf.trainable_variables()
@@ -237,14 +237,15 @@ class model():
 
         node_rep_mask = slotted_node_representation != self.pad_token
 
-        unique_label_subtokens, node_label_indices, unique_label_inverse_indices = \
-            np.unique(slotted_node_representation, return_index=True, return_inverse=True, axis=0)
-
         slot_ids = np.zeros((1, self.max_slots))
-        slot_ids[0, :len(variable_node_ids)] = variable_node_ids
-        slot_mask = slot_ids != 0
+        slot_mask = np.zeros((1, self.max_slots))
+        slot_ids[0, 0:len(variable_node_ids)] = variable_node_ids
+        slot_mask[0, 0:len(variable_node_ids)] = 1
 
         target_mask = np.zeros((1, self.max_var_seq_len))
+
+        # Define inference sequence decoder
+        start_tokens = np.ones((1)) * self.sos_token
 
         if self.mode == 'train':
 
@@ -265,6 +266,17 @@ class model():
             decoder_targets = np.zeros((1, self.max_var_seq_len))
 
 
+        # If batching is enabled, delay creation of the vocabulary until batch creation
+        if self.enable_batching:
+            unique_label_subtokens, node_label_indices = None, None
+            unique_label_inverse_indices = slotted_node_representation
+        else:
+            unique_label_subtokens, node_label_indices, unique_label_inverse_indices = \
+                np.unique(slotted_node_representation, return_index=True, return_inverse=True, axis=0)
+
+
+
+
         # Create the sample graph
         graph_sample = {
             self.placeholders['unique_node_labels']: unique_label_subtokens,
@@ -276,6 +288,7 @@ class model():
             self.placeholders['num_outgoing_edges_per_type']: outgoing_edges,
             self.placeholders['decoder_targets']: decoder_targets,
             self.placeholders['decoder_inputs']: decoder_inputs,
+            self.placeholders['sos_tokens']: start_tokens,
             self.placeholders['decoder_targets_length']: np.ones((1)) * self.max_var_seq_len,
             self.placeholders['target_mask']: target_mask
         }
@@ -303,51 +316,66 @@ class model():
             g = Graph()
             g.ParseFromString(f.read())
 
-            filtered_nodes, filtered_edges = graph_preprocessing.filter_graph(g)
+            timesteps = 8
+            graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_node_seq_len, self.pad_token, self.vocabulary)
 
-            id_to_index_map = graph_preprocessing.get_node_id_to_index_map(filtered_nodes)
-
-            variable_node_ids = graph_preprocessing.get_var_nodes_map(g, id_to_index_map)
-
-            adjacency_lists = graph_preprocessing.compute_adjacency_lists(filtered_edges, id_to_index_map)
-
-            node_representations = graph_preprocessing.compute_initial_node_representation(filtered_nodes, self.max_node_seq_len,
-                                                                                           self.pad_token, self.vocabulary)
-
-            incoming_edges_per_type, outgoing_edges_per_type = \
-                graph_preprocessing.compute_edges_per_type(len(node_representations), adjacency_lists)
-
+            print("Pre-processed graph")
 
             samples, labels, sample_meta_inf = [], [], []
 
-            for variable_root_id in variable_node_ids:
 
-                new_sample, new_label = self.create_sample(variable_node_ids[variable_root_id],
-                                                           node_representations, adjacency_lists,
-                                                           incoming_edges_per_type, outgoing_edges_per_type)
+            for sample in graph_samples:
+
+                new_sample, new_label = self.create_sample(*sample)
 
                 samples.append(new_sample)
                 labels.append(new_label)
 
-                meta_inf = SampleMetaInformation(filepath, variable_root_id)
-                sample_meta_inf.append(meta_inf)
 
-            return samples, labels, meta_inf
+                # print("Size: ", new_sample[self.placeholders['node_label_indices']].shape[0])
+
+
+            for sym_var_node in sym_var_nodes:
+                new_inf = SampleMetaInformation(filepath, sym_var_node)
+                sample_meta_inf.append(new_inf)
+
+
+            return samples, labels, sample_meta_inf
 
 
 
 
     def make_batch_samples(self, graph_samples, all_labels):
 
+        max_nodes_in_batch = self.batch_size
         batch_samples, labels = [], []
+        current_batch = []
+        nodes_in_curr_batch = 0
 
-        n_batches = math.ceil(len(graph_samples)/self.batch_size)
+        for i, graph_sample in enumerate(graph_samples):
 
-        for i in range(n_batches - 1):
-            start = i * self.batch_size
-            end = min(start + self.batch_size, len(graph_samples))
-            batch_samples.append(self.make_batch(graph_samples[start:end]))
-            labels += all_labels[start:end]
+            num_nodes_in_sample = graph_sample[self.placeholders['node_label_indices']].shape[0]
+
+            # Skip sample if it is too big
+            if num_nodes_in_sample > max_nodes_in_batch:
+                continue
+
+            # Add to current batch if there is space
+            if num_nodes_in_sample + nodes_in_curr_batch < max_nodes_in_batch:
+                current_batch.append(graph_sample)
+                nodes_in_curr_batch += num_nodes_in_sample
+
+            # Otherwise start creating a new batch
+            else:
+                batch_samples.append(self.make_batch(current_batch))
+                current_batch = [graph_sample]
+                nodes_in_curr_batch = num_nodes_in_sample
+
+            labels.append(all_labels[i])
+
+
+        if len(current_batch) > 0:
+            batch_samples.append(self.make_batch(current_batch))
 
         return batch_samples, labels
 
@@ -357,20 +385,19 @@ class model():
     def make_batch(self, graph_samples):
 
         node_offset = 0
-        unique_labels, label_masks, label_indices = [], [], []
+        node_reps = []
         slot_ids, slot_masks = [], []
         num_incoming_edges_per_type, num_outgoing_edges_per_type = [], []
         decoder_targets, decoder_inputs, decoder_targets_length, decoder_masks = [], [], [], []
         adj_lists = [[] for _ in range(self.ggnn_params['n_edge_types'])]
+        start_tokens = np.ones((len(graph_samples))) * self.sos_token
 
         for graph_sample in graph_samples:
 
-            num_nodes_in_graph = len(graph_sample[self.placeholders['node_label_indices']])
+            num_nodes_in_graph = graph_sample[self.placeholders['node_label_indices']].shape[0]
 
-            label_indices.append(graph_sample[self.placeholders['unique_node_labels']])
-            label_masks.append(graph_sample[self.placeholders['unique_node_labels_mask']])
-            unique_labels.append(graph_sample[self.placeholders['node_label_indices']])
-            slot_ids.append(graph_sample[self.placeholders['slot_ids']])
+            node_reps.append(graph_sample[self.placeholders['node_label_indices']])
+            slot_ids.append(graph_sample[self.placeholders['slot_ids']] + graph_sample[self.placeholders['slot_ids_mask']] * node_offset)
             slot_masks.append(graph_sample[self.placeholders['slot_ids_mask']])
             num_incoming_edges_per_type.append(graph_sample[self.placeholders['num_incoming_edges_per_type']])
             num_outgoing_edges_per_type.append(graph_sample[self.placeholders['num_outgoing_edges_per_type']])
@@ -385,23 +412,31 @@ class model():
             node_offset += num_nodes_in_graph
 
 
+
+        all_node_reps = np.vstack(node_reps)
+        node_rep_mask = all_node_reps != self.pad_token
+
+        unique_label_subtokens, node_label_indices, unique_label_inverse_indices = \
+            np.unique(all_node_reps, return_index=True, return_inverse=True, axis=0)
+
         batch_sample = {
-            self.placeholders['unique_node_labels']: np.vstack(label_indices),
-            self.placeholders['unique_node_labels_mask']: np.vstack(label_masks),
-            self.placeholders['node_label_indices']: np.hstack(unique_labels),
+            self.placeholders['unique_node_labels']: unique_label_subtokens,
+            self.placeholders['unique_node_labels_mask']: node_rep_mask[node_label_indices],
+            self.placeholders['node_label_indices']: unique_label_inverse_indices,
             self.placeholders['slot_ids']: np.vstack(slot_ids),
             self.placeholders['slot_ids_mask']: np.vstack(slot_masks),
             self.placeholders['num_incoming_edges_per_type']: np.vstack(num_incoming_edges_per_type),
             self.placeholders['num_outgoing_edges_per_type']: np.vstack(num_outgoing_edges_per_type),
             self.placeholders['decoder_targets']: np.vstack(decoder_targets),
             self.placeholders['decoder_inputs']: np.hstack(decoder_inputs),
+            self.placeholders['sos_tokens']: start_tokens,
             self.placeholders['decoder_targets_length']: np.hstack(decoder_targets_length),
             self.placeholders['target_mask']: np.vstack(decoder_masks)
         }
 
         for i in range(self.ggnn_params['n_edge_types']):
             if len(adj_lists[i]) > 0:
-                adj_list = np.concatenate(adj_lists[i])
+                adj_list = np.vstack(adj_lists[i])
             else:
                 adj_list = np.zeros((0, 2), dtype=np.int32)
 
@@ -416,7 +451,7 @@ class model():
 
         graph_samples, labels, _ = self.get_samples_with_inf(dir_path)
 
-        return graph_samples, labels
+        return graph_samples, labels, _
 
 
 
@@ -428,30 +463,37 @@ class model():
             for filename in files:
                 if filename[-5:] == 'proto':
                     fname = os.path.join(dirpath, filename)
-                    new_samples, new_labels, new_inf = self.create_samples(fname)
 
-                    graph_samples += new_samples
-                    labels += new_labels
-                    meta_sample_inf += new_inf
+                    f_size = os.path.getsize(fname)/1000
+
+                    if f_size < 400:
+
+                        new_samples, new_labels, new_inf = self.create_samples(fname)
+
+                        if len(new_samples) > 0:
+                            graph_samples += new_samples
+                            labels += new_labels
+                            meta_sample_inf += new_inf
 
 
-        # Shuffle the individual samples
         zipped = list(zip(graph_samples, labels, meta_sample_inf))
         shuffle(zipped)
         graph_samples, labels, meta_sample_inf = zip(*zipped)
+        graph_samples, labels = self.make_batch_samples(graph_samples, labels)
 
         return graph_samples, labels, meta_sample_inf
 
 
 
-
     def train(self, corpus_path, n_epochs):
 
-        train_samples, _ = self.get_samples(corpus_path)
-        train_samples, _ = self.make_batch_samples(train_samples, _)
+        train_samples, tv, _ = self.get_samples(corpus_path)
+
+        print("Obtained samples...", len(train_samples))
+
         losses = []
 
-        print("Train vals: ", _)
+        print("Train vals: ", tv)
 
         with self.graph.as_default():
 
@@ -477,6 +519,9 @@ class model():
 
         n_correct = 0
 
+        print("Predictions: ", len(predictions))
+        print("Test labels: ", len(test_labels))
+
         for i in range(len(predictions)):
 
             print("Predicted: ", predictions[i])
@@ -495,8 +540,7 @@ class model():
 
     def infer(self, corpus_path):
 
-        test_samples, test_labels = self.get_samples(corpus_path)
-        test_samples, test_labels = self.make_batch_samples(test_samples, test_labels)
+        test_samples, test_labels, _ = self.get_samples(corpus_path)
 
         print("Test vals: ", test_labels)
 
@@ -512,7 +556,7 @@ class model():
 
                 predictions = self.sess.run([self.predictions], feed_dict=graph)[0]
 
-                for i in range(self.batch_size):
+                for i in range(len(predictions)):
 
                     predicted_name = [self.vocabulary.get_name_for_id(token_id) for token_id in predictions[i]]
 
@@ -522,6 +566,8 @@ class model():
 
                     predicted_names.append(predicted_name)
 
+
+            print('predicted: ', len(predicted_names))
 
             accuracy = self.process_predictions(predicted_names, test_labels)
 
