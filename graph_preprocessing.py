@@ -19,9 +19,12 @@ def get_used_edges_type():
 
 def get_used_nodes_type():
 
-    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN,
-                       FeatureNode.COMMENT_LINE, FeatureNode.COMMENT_BLOCK, FeatureNode.COMMENT_JAVADOC,
-                       FeatureNode.FAKE_AST]
+    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN]
+
+       # ,
+       #                 FeatureNode.COMMENT_LINE, FeatureNode.COMMENT_BLOCK, FeatureNode.COMMENT_JAVADOC,
+       #                 FeatureNode.FAKE_AST, FeatureNode.SYMBOL, FeatureNode.SYMBOL_TYP,
+       #                 FeatureNode.SYMBOL_MTH, FeatureNode.TYPE]
 
     return used_node_types
 
@@ -64,8 +67,8 @@ def compute_sub_graphs(graph, timesteps, seq_length, pad_token, vocabulary):
 
 
         reachable_node_ids = []
-        successor_ids = [node_id for node_id in var_identifier_node_ids]
-        predecessor_ids = successor_ids
+        successor_ids = var_identifier_node_ids
+        predecessor_ids = var_identifier_node_ids
 
         for _ in range(timesteps):
             reachable_node_ids += successor_ids
