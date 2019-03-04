@@ -1,0 +1,27 @@
+
+
+# Local paths: 
+corpus_path: "/Users/AdminDK/Dropbox/Part III Modules/R252 Machine Learning for Programming/corpus/r252-corpus-features"
+checkpoint_path: "/Users/AdminDK/Dropbox/Part III Modules/R252 Machine Learning for Programming/Project/checkpoint/train.ckpt"
+train_path: "/Users/AdminDK/Desktop/train_graphs"
+test_path: "/Users/AdminDK/Desktop/test_graphs"
+token_path: "/Users/AdminDK/Desktop/tokens.txt"
+
+
+
+# GPU paths:
+# checkpoint_path = "/home/dk525/checkpoint/train.ckpt"
+# train_path = "/home/dk525/train_graphs"
+# test_path = "/home/dk525/test_graphs"
+# token_path = "/home/dk525/tokens.txt"
+
+
+
+
+
+
+
+
+
+
+

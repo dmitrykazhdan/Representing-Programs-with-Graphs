@@ -459,6 +459,9 @@ class model():
 
         graph_samples, labels, meta_sample_inf = [], [], []
 
+        n_files = sum([1 for dirpath, dirs, files in os.walk(dir_path) for filename in files if filename[-5:] == 'proto'])
+        n_processed = 0
+
         for dirpath, dirs, files in os.walk(dir_path):
             for filename in files:
                 if filename[-5:] == 'proto':
@@ -474,6 +477,9 @@ class model():
                             graph_samples += new_samples
                             labels += new_labels
                             meta_sample_inf += new_inf
+
+                    n_processed += 1
+                    print("Processed ", n_processed/n_files * 100, "% of files...")
 
 
         zipped = list(zip(graph_samples, labels, meta_sample_inf))
@@ -507,7 +513,7 @@ class model():
                 losses.append(loss)
 
                 print("Average Epoch Loss:", (loss/len(train_samples)))
-                print("Epoch: ", epoch)
+                print("Epoch: ", epoch + 1, "/", n_epochs)
                 print("---------------------------------------------")
 
             saver = tf.train.Saver()
