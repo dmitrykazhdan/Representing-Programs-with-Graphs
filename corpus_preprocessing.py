@@ -15,13 +15,21 @@ def get_train_and_test():
     test_path = cfg['test_path']
 
     f_names = []
+    ignore = ("Test.java.proto", "TestCase.java.proto") # Ignore test cases
+    max_size_mb = 20          # maximum file size in MB
+
 
     # Extract all filenames from corpus folders
     for dirpath, dirs, files in os.walk(corpus_path):
         for filename in files:
-            if filename[-5:] == 'proto':
-                fname = os.path.join(dirpath, filename)
-                f_names.append(fname)
+            if filename.endswith('proto') and not filename.endswith(ignore):
+
+                f_size = os.path.getsize(fname) / 1000000
+
+                if f_size < max_size_mb:
+                    fname = os.path.join(dirpath, filename)
+                    f_names.append(fname)
+
 
 
     # Copy subset of samples into training/testing directories

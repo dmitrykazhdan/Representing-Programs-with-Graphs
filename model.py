@@ -6,7 +6,6 @@ import numpy as np
 import os
 import graph_preprocessing
 from random import shuffle
-import math
 
 
 
@@ -22,14 +21,14 @@ class model():
         self.batch_size = 2000                              # Number of nodes per batch sample
         self.enable_batching = True
         self.learning_rate = 0.001
-        self.ggnn_dropout = 0.9
         self.ggnn_params = self.get_gnn_params()
         self.vocabulary = vocabulary
         self.voc_size = len(vocabulary)
         self.slot_id = self.vocabulary.get_id_or_unk('<SLOT>')
-        self.sos_token = self.vocabulary.get_id_or_unk('sos_token')
-        self.pad_token = self.vocabulary.get_id_or_unk(self.vocabulary.get_pad())
+        self.sos_token_id = self.vocabulary.get_id_or_unk('sos_token')
+        self.pad_token_id = self.vocabulary.get_id_or_unk(self.vocabulary.get_pad())
         self.embedding_size = self.ggnn_params['hidden_size']
+        self.ggnn_dropout = 0.9
 
         if mode != 'train' and mode != 'infer':
             raise ValueError("Invalid mode. Please specify \'train\' or \'infer\'...")
@@ -79,8 +78,8 @@ class model():
     def make_inputs(self):
 
         # Node token sequences
-        self.placeholders['unique_node_labels'] = tf.placeholder(name='unique_labels',shape=[None, self.max_node_seq_len],dtype=tf.int32 )
-        self.placeholders['unique_node_labels_mask'] = tf.placeholder(name='unique_node_labels_mask',shape=[None, self.max_node_seq_len],dtype=tf.float32)
+        self.placeholders['unique_node_labels'] = tf.placeholder(name='unique_labels',shape=[None, self.max_node_seq_len], dtype=tf.int32 )
+        self.placeholders['unique_node_labels_mask'] = tf.placeholder(name='unique_node_labels_mask', shape=[None, self.max_node_seq_len], dtype=tf.float32)
         self.placeholders['node_label_indices'] = tf.placeholder(name='node_label_indices', shape=[None], dtype=tf.int32)
 
 
@@ -188,7 +187,7 @@ class model():
 
         elif self.mode == 'infer':
 
-            end_token = self.pad_token
+            end_token = self.pad_token_id
             max_iterations = self.max_var_seq_len
 
             inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(embedding_decoder,
@@ -232,10 +231,10 @@ class model():
 
         # Set all occurrences of variable to <SLOT>
         slotted_node_representation = node_representation.copy()
-        slotted_node_representation[variable_node_ids, :] = self.pad_token
+        slotted_node_representation[variable_node_ids, :] = self.pad_token_id
         slotted_node_representation[variable_node_ids, 0] = self.slot_id
 
-        node_rep_mask = slotted_node_representation != self.pad_token
+        node_rep_mask = slotted_node_representation != self.pad_token_id
 
         slot_ids = np.zeros((1, self.max_slots))
         slot_mask = np.zeros((1, self.max_slots))
@@ -245,19 +244,19 @@ class model():
         target_mask = np.zeros((1, self.max_var_seq_len))
 
         # Define inference sequence decoder
-        start_tokens = np.ones((1)) * self.sos_token
+        start_tokens = np.ones((1)) * self.sos_token_id
 
         if self.mode == 'train':
 
             # Set decoder inputs and targets
             decoder_inputs = var_token_seq.copy()
-            decoder_inputs = np.insert(decoder_inputs, 0, self.sos_token)[:-1]
+            decoder_inputs = np.insert(decoder_inputs, 0, self.sos_token_id)[:-1]
             decoder_inputs = decoder_inputs.reshape(self.max_var_seq_len, 1)
 
             decoder_targets = var_token_seq.copy()
             decoder_targets = decoder_targets.reshape(1, self.max_var_seq_len)
 
-            non_pads = np.sum(decoder_targets != self.pad_token) + 1
+            non_pads = np.sum(decoder_targets != self.pad_token_id) + 1
             target_mask[0, 0:non_pads] = 1
 
         elif self.mode == 'infer':
@@ -301,7 +300,7 @@ class model():
 
         # Obtain variable name
         var_name = [self.vocabulary.get_name_for_id(token_id)
-                    for token_id in var_token_seq if token_id != self.pad_token]
+                    for token_id in var_token_seq if token_id != self.pad_token_id]
 
         return graph_sample, var_name
 
@@ -317,7 +316,7 @@ class model():
             g.ParseFromString(f.read())
 
             timesteps = 8
-            graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_node_seq_len, self.pad_token, self.vocabulary)
+            graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_node_seq_len, self.pad_token_id, self.vocabulary)
 
             print("Pre-processed graph")
 
@@ -390,7 +389,7 @@ class model():
         num_incoming_edges_per_type, num_outgoing_edges_per_type = [], []
         decoder_targets, decoder_inputs, decoder_targets_length, decoder_masks = [], [], [], []
         adj_lists = [[] for _ in range(self.ggnn_params['n_edge_types'])]
-        start_tokens = np.ones((len(graph_samples))) * self.sos_token
+        start_tokens = np.ones((len(graph_samples))) * self.sos_token_id
 
         for graph_sample in graph_samples:
 
@@ -414,7 +413,7 @@ class model():
 
 
         all_node_reps = np.vstack(node_reps)
-        node_rep_mask = all_node_reps != self.pad_token
+        node_rep_mask = all_node_reps != self.pad_token_id
 
         unique_label_subtokens, node_label_indices, unique_label_inverse_indices = \
             np.unique(all_node_reps, return_index=True, return_inverse=True, axis=0)
@@ -467,19 +466,15 @@ class model():
                 if filename[-5:] == 'proto':
                     fname = os.path.join(dirpath, filename)
 
-                    f_size = os.path.getsize(fname)/1000
+                    new_samples, new_labels, new_inf = self.create_samples(fname)
 
-                    if f_size < 400:
+                    if len(new_samples) > 0:
+                        graph_samples += new_samples
+                        labels += new_labels
+                        meta_sample_inf += new_inf
 
-                        new_samples, new_labels, new_inf = self.create_samples(fname)
-
-                        if len(new_samples) > 0:
-                            graph_samples += new_samples
-                            labels += new_labels
-                            meta_sample_inf += new_inf
-
-                    n_processed += 1
-                    print("Processed ", n_processed/n_files * 100, "% of files...")
+                n_processed += 1
+                print("Processed ", n_processed/n_files * 100, "% of files...")
 
 
         zipped = list(zip(graph_samples, labels, meta_sample_inf))

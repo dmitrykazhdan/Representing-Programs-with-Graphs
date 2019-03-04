@@ -1,4 +1,3 @@
-from graph_pb2 import Graph
 from graph_pb2 import FeatureNode, FeatureEdge
 from collections import defaultdict
 import numpy as np
@@ -31,7 +30,6 @@ def get_used_nodes_type():
 
 
 def compute_sub_graphs(graph, timesteps, seq_length, pad_token, vocabulary):
-
 
     successor_table = defaultdict(set)
     predecessor_table = defaultdict(set)
