@@ -515,7 +515,7 @@ class model():
 
 
 
-    def process_predictions(selfs, predictions, test_labels):
+    def process_predictions(selfs, predictions, test_labels, sample_inf):
 
         n_correct = 0
 
@@ -529,7 +529,13 @@ class model():
             print("")
             print("")
 
-            if predictions[i] == test_labels[i]: n_correct += 1
+            if predictions[i] == test_labels[i]:
+                n_correct += 1
+
+                sample_inf[i].predicted_correctly = True
+            else:
+                sample_inf[i].predicted_correctly = False
+
 
         accuracy = n_correct / len(test_labels) * 100
 
@@ -540,9 +546,11 @@ class model():
 
     def infer(self, corpus_path):
 
-        test_samples, test_labels, _ = self.get_samples(corpus_path)
+        test_samples, test_labels, sample_inf = self.get_samples(corpus_path)
 
         print("Test vals: ", test_labels)
+
+        print(sample_inf)
 
         with self.graph.as_default():
 
@@ -569,9 +577,13 @@ class model():
 
             print('predicted: ', len(predicted_names))
 
-            accuracy = self.process_predictions(predicted_names, test_labels)
+            accuracy = self.process_predictions(predicted_names, test_labels, sample_inf)
 
             print("Absolute accuracy: ", accuracy)
+
+
+            meta_corpus = CorpusMetaInformation(sample_inf)
+            meta_corpus.process_sample_inf()
 
 
 

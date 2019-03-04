@@ -9,12 +9,15 @@ class SampleMetaInformation():
     def __init__(self, sample_fname, node_id):
         self.fname = sample_fname
         self.node_id = node_id
-        # self.var_type = self.__compute_var_type()
-        # self.var_usages = self.__compute_var_usages()
+        self.predicted_correctly = None
+        self.type = None
+        self.usages = None
 
 
+    def compute_var_type(self):
 
-    def __compute_var_type(self):
+        if self.type != None: return self.type
+
 
         with open(self.fname, "rb") as f:
 
@@ -23,10 +26,15 @@ class SampleMetaInformation():
 
             var_type = get_var_type(g, self.node_id)
 
+        self.type = var_type
+
         return var_type
 
 
-    def __compute_var_usages(self):
+
+    def compute_var_usages(self):
+
+        if self.usages != None: return self.usages
 
         with open(self.fname, "rb") as f:
             g = Graph()
@@ -34,21 +42,17 @@ class SampleMetaInformation():
 
             n_usages = get_var_usages(g, self.node_id)
 
+        self.usages = n_usages
+
         return n_usages
-
-
-    def get_var_type(self): return self.var_type
-
-
-    def get_var_usages(self): return self.var_usages
 
 
 
 
 class CorpusMetaInformation():
 
-    def __init__(self):
-        self.sample_meta_inf = []
+    def __init__(self, _sample_meta_inf):
+        self.sample_meta_inf = _sample_meta_inf
 
 
     def add_sample_inf(self, sample_inf):
@@ -56,7 +60,36 @@ class CorpusMetaInformation():
 
 
     def process_sample_inf(self):
-        return None
+
+        incorr_usage_classes, corr_usage_classes = defaultdict(int), defaultdict(int)
+        incorr_type_classes, corr_type_classes = defaultdict(int), defaultdict(int)
+
+        for sample_inf in self.sample_meta_inf:
+
+            print("filename: ", sample_inf.fname)
+            sample_inf.compute_var_usages()
+            sample_inf.compute_var_type()
+
+            if sample_inf.predicted_correctly:
+                corr_usage_classes[sample_inf.usages] += 1
+                corr_type_classes[sample_inf.type] += 1
+            else:
+                incorr_usage_classes[sample_inf.usages] += 1
+                incorr_type_classes[sample_inf.type] += 1
+
+
+            print("Usage: ", sample_inf.usages)
+            print("Type: ", sample_inf.type)
+
+
+        for i in range(20):
+            print(str(i) + " usages: ")
+            print(incorr_usage_classes[i], corr_usage_classes[i])
+            print("")
+
+            print("types: ")
+            print(incorr_type_classes[i], corr_type_classes[i])
+            print("")
 
 
 
@@ -64,16 +97,16 @@ class CorpusMetaInformation():
 
 
 # Pre-compute successors and predecessors for a given graph
-def compute_successors_and_predecessors(graph, id_to_node):
+def compute_successors_and_predecessors(graph):
 
-    successors = defaultdict(list)
-    predecessors = defaultdict(list)
+    successor_table = defaultdict(set)
+    predecessor_table = defaultdict(set)
 
     for edge in graph.edge:
-        successors[id_to_node[edge.sourceId]].append(id_to_node[edge.destinationId])
-        predecessors[id_to_node[edge.destinationId]].append(id_to_node[edge.sourceId])
+        successor_table[edge.sourceId].add(edge.destinationId)
+        predecessor_table[edge.destinationId].add(edge.sourceId)
 
-    return successors, predecessors
+    return successor_table, predecessor_table
 
 
 def compute_id_dict(graph):
@@ -90,31 +123,39 @@ def compute_id_dict(graph):
 def get_var_type(graph, sym_var_node_id):
 
     id_dict = compute_id_dict(graph)
-    successors, predecessors = compute_successors_and_predecessors(graph, id_dict)
+    successors, predecessors = compute_successors_and_predecessors(graph)
 
-    id_token_nodes = [n for n in successors[sym_var_node_id] if n.type == FeatureNode.IDENTIFIER_TOKEN]
+    id_token_nodes = [n_id for n_id in successors[sym_var_node_id] if id_dict[n_id].type == FeatureNode.IDENTIFIER_TOKEN]
 
-    ast_parent = None
+    ast_parent = -1
+
+    print("var: ", id_dict[sym_var_node_id].contents)
 
     for id_token_node in id_token_nodes:
-        for parent in predecessors[id_token_node]:
-            if parent.type == FeatureNode.AST_ELEMENT and parent.contents == "VARIABLE":
-                ast_parent = parent
+        for parent_id in predecessors[id_token_node]:
+
+            print("-----")
+            print(id_dict[parent_id].contents)
+            print("-----")
+
+            if id_dict[parent_id].type == FeatureNode.AST_ELEMENT and id_dict[parent_id].contents == "VARIABLE":
+                ast_parent = parent_id
                 break
 
-        if ast_parent != None: break
+        if ast_parent != -1: break
 
-    if ast_parent == None: raise ValueError('AST_ELEMENT VARIABLE node not found...')
+    if ast_parent == -1: raise ValueError('AST_ELEMENT VARIABLE node not found...')
 
 
     fake_ast_type = [n for n in successors[ast_parent]
-                     if n.type == FeatureNode.FAKE_AST and n.contents == "TYPE"][0]
+                     if id_dict[n].type == FeatureNode.FAKE_AST and id_dict[n].contents == "TYPE"][0]
 
     fake_ast_type_succ = list(successors[fake_ast_type])[0]
 
-    type = [n.contents for n in predecessors[fake_ast_type_succ] if n.type == FeatureNode.TYPE][0]
+    type = [id_dict[n].contents for n in successors[fake_ast_type_succ] if id_dict[n].type == FeatureNode.TYPE][0]
 
     return type
+
 
 
 

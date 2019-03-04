@@ -18,7 +18,7 @@ token_path = "/Users/AdminDK/Desktop/tokens.txt"
 
 # GPU paths:
 # checkpoint_path = "/home/dk525/checkpoint/train.ckpt"
-# train_path = "/home/dk525/test_graphs"
+# train_path = "/home/dk525/train_graphs"
 # test_path = "/home/dk525/test_graphs"
 # token_path = "/home/dk525/tokens.txt"
 
@@ -26,11 +26,11 @@ token_path = "/Users/AdminDK/Desktop/tokens.txt"
 def main():
 
   # Training:
-  vocabulary = vocabulary_extractor.create_vocabulary_from_corpus(train_path, token_path)
-  print("Constructed vocabulary...")
-  m = model(mode='train', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
-  n_train_epochs = 20
-  m.train(train_path, n_train_epochs)
+  # vocabulary = vocabulary_extractor.create_vocabulary_from_corpus(train_path, token_path)
+  # print("Constructed vocabulary...")
+  # m = model(mode='train', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
+  # n_train_epochs = 3
+  # m.train(train_path, n_train_epochs)
 
 
 
