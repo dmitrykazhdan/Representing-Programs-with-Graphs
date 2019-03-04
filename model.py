@@ -152,18 +152,18 @@ class model():
 
 
         # Compute average of <SLOT> usage representations
-        avg_representation = tf.gather(gnn_representation, self.placeholders['slot_ids'])
+        self.avg_representation = tf.gather(gnn_representation, self.placeholders['slot_ids'])
         slot_mask = tf.reshape(self.placeholders['slot_ids_mask'], [-1, self.max_slots, 1])
-        slot_embedding = slot_mask * avg_representation
-        avg_representation = tf.reduce_sum(slot_embedding, axis=1)
+        slot_embedding = slot_mask * self.avg_representation
+        self.avg_representation = tf.reduce_sum(slot_embedding, axis=1)
         num_slots = tf.reduce_sum(slot_mask, axis=1)
-        avg_representation /= num_slots
+        self.avg_representation /= num_slots
 
 
         # Obtain output sequence by passing through a single GRU layer
         embedding_decoder = tf.get_variable('embedding_decoder', [self.voc_size, self.embedding_size])
         decoder_cell = tf.nn.rnn_cell.GRUCell(self.embedding_size)
-        decoder_initial_state = avg_representation
+        decoder_initial_state = self.avg_representation
         projection_layer = tf.layers.Dense(self.voc_size, use_bias=False)
 
 
@@ -562,7 +562,7 @@ class model():
 
             for graph in test_samples:
 
-                predictions = self.sess.run([self.predictions], feed_dict=graph)[0]
+                predictions, usage_reps = self.sess.run([self.predictions, self.avg_representation], feed_dict=graph)
 
                 for i in range(len(predictions)):
 
@@ -574,6 +574,9 @@ class model():
 
                     predicted_names.append(predicted_name)
 
+                    sample_inf[i].usage_rep = usage_reps[i]
+                    sample_inf[i].true_label = test_labels[i]
+
 
             print('predicted: ', len(predicted_names))
 
@@ -583,8 +586,8 @@ class model():
 
 
             meta_corpus = CorpusMetaInformation(sample_inf)
-            meta_corpus.process_sample_inf()
-
+            #meta_corpus.process_sample_inf()
+            meta_corpus.compute_usage_clusters()
 
 
 

@@ -1,20 +1,27 @@
 from graph_pb2 import Graph
 from graph_pb2 import FeatureNode, FeatureEdge
 from collections import defaultdict
+from sklearn.cluster import KMeans
+import numpy as np
 
 
 # Currently sample meta-information consists of the graph filename and the sym_var node id
 class SampleMetaInformation():
 
     def __init__(self, sample_fname, node_id):
+
         self.fname = sample_fname
         self.node_id = node_id
         self.predicted_correctly = None
         self.type = None
         self.usages = None
+        self.usage_rep = None
+        self.true_label = None
 
 
     def compute_var_type(self):
+
+        return 0
 
         if self.type != None: return self.type
 
@@ -59,6 +66,20 @@ class CorpusMetaInformation():
         self.sample_meta_inf.append(sample_inf)
 
 
+    def compute_usage_clusters(self):
+
+        usage_arr = [sample_inf.usage_rep for sample_inf in self.sample_meta_inf]
+        usage_arr = np.vstack(usage_arr)
+
+        kmeans = KMeans(n_clusters=10).fit(usage_arr)
+
+        labels_with_names = [[kmeans.labels_[i], self.sample_meta_inf[i].true_label] for i in range(len(self.sample_meta_inf))]
+        labels_with_names = sorted(labels_with_names, key=lambda x: x[0])
+
+        print(labels_with_names)
+
+
+
     def process_sample_inf(self):
 
         incorr_usage_classes, corr_usage_classes = defaultdict(int), defaultdict(int)
@@ -90,6 +111,8 @@ class CorpusMetaInformation():
             print("types: ")
             print(incorr_type_classes[i], corr_type_classes[i])
             print("")
+
+
 
 
 
@@ -144,7 +167,9 @@ def get_var_type(graph, sym_var_node_id):
 
         if ast_parent != -1: break
 
-    if ast_parent == -1: raise ValueError('AST_ELEMENT VARIABLE node not found...')
+    if ast_parent == -1:
+        return None
+        raise ValueError('AST_ELEMENT VARIABLE node not found...')
 
 
     fake_ast_type = [n for n in successors[ast_parent]

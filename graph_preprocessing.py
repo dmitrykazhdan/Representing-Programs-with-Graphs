@@ -55,6 +55,7 @@ def compute_sub_graphs(graph, timesteps, seq_length, pad_token, vocabulary):
         edge_table[edge.sourceId].append(edge)
 
 
+
     for sym_var_node_id in sym_var_node_ids:
 
         successor_ids = list(successor_table[sym_var_node_id])
@@ -64,7 +65,11 @@ def compute_sub_graphs(graph, timesteps, seq_length, pad_token, vocabulary):
 
 
         # Ensure variable has at least one usage
-        if len(var_identifier_node_ids) == 0: continue
+        if len(var_identifier_node_ids) == 0:
+
+            print("Var node with no identifier tokens: ", node_table[sym_var_node_id].contents)
+
+            continue
 
 
         reachable_node_ids = []
