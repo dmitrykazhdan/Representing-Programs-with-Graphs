@@ -18,7 +18,7 @@ def main():
   print("Constructed vocabulary...")
 
   m = model(mode='train', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
-  n_train_epochs = 100
+  n_train_epochs = 50
   m.train(train_path, n_train_epochs)
 
 

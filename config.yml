@@ -10,10 +10,11 @@ token_path: "/Users/AdminDK/Desktop/tokens.txt"
 
 
 # GPU paths:
-# checkpoint_path = "/home/dk525/checkpoint/train.ckpt"
-# train_path = "/home/dk525/train_graphs"
-# test_path = "/home/dk525/test_graphs"
-# token_path = "/home/dk525/tokens.txt"
+#corpus_path: "/home/dk525/r252-corpus-features"
+#checkpoint_path: "/home/dk525/checkpoint/train.ckpt"
+#train_path: "/home/dk525/train_graphs"
+#test_path: "/home/dk525/test_graphs"
+#token_path: "/home/dk525/tokens.txt"
 
 
 

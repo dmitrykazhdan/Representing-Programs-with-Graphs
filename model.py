@@ -562,6 +562,8 @@ class model():
 
             predicted_names = []
 
+            offset = 0
+
             for graph in test_samples:
 
                 predictions, usage_reps = self.sess.run([self.predictions, self.avg_representation], feed_dict=graph)
@@ -576,9 +578,10 @@ class model():
 
                     predicted_names.append(predicted_name)
 
-                    sample_inf[i].usage_rep = usage_reps[i]
-                    sample_inf[i].true_label = test_labels[i]
+                    sample_inf[i + offset].usage_rep = usage_reps[i]
+                    sample_inf[i + offset].true_label = test_labels[i]
 
+                offset += len(predictions)
 
             accuracy = self.process_predictions(predicted_names, test_labels, sample_inf)
 
@@ -587,7 +590,7 @@ class model():
 
             meta_corpus = CorpusMetaInformation(sample_inf)
             #meta_corpus.process_sample_inf()
-            #meta_corpus.compute_usage_clusters()
+            meta_corpus.compute_usage_clusters()
 
 
 

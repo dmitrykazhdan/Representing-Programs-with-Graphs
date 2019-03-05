@@ -73,7 +73,7 @@ class CorpusMetaInformation():
 
         kmeans = KMeans(n_clusters=10).fit(usage_arr)
 
-        labels_with_names = [[kmeans.labels_[i], self.sample_meta_inf[i].true_label] for i in range(len(self.sample_meta_inf))]
+        labels_with_names = [[kmeans.labels_[i], self.sample_meta_inf[i].true_label] for i in range(len(self.sample_meta_inf)) if self.sample_meta_inf[i].predicted_correctly == True]
         labels_with_names = sorted(labels_with_names, key=lambda x: x[0])
 
         print(labels_with_names)
