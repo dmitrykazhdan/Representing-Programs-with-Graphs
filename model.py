@@ -242,6 +242,8 @@ class model():
         slot_mask[0, 0:len(variable_node_ids)] = 1
 
         target_mask = np.zeros((1, self.max_var_seq_len))
+        decoder_inputs = np.zeros((self.max_var_seq_len, 1))
+        decoder_targets = np.zeros((1, self.max_var_seq_len))
 
         # Define inference sequence decoder
         start_tokens = np.ones((1)) * self.sos_token_id
@@ -259,18 +261,14 @@ class model():
             non_pads = np.sum(decoder_targets != self.pad_token_id) + 1
             target_mask[0, 0:non_pads] = 1
 
-        elif self.mode == 'infer':
-
-            decoder_inputs = np.zeros((self.max_var_seq_len, 1))
-            decoder_targets = np.zeros((1, self.max_var_seq_len))
 
 
         # If batching is enabled, delay creation of the vocabulary until batch creation
         if self.enable_batching:
-            unique_label_subtokens, node_label_indices = None, None
+            unique_label_subtokens, unique_label_indices = None, None
             unique_label_inverse_indices = slotted_node_representation
         else:
-            unique_label_subtokens, node_label_indices, unique_label_inverse_indices = \
+            unique_label_subtokens, unique_label_indices, unique_label_inverse_indices = \
                 np.unique(slotted_node_representation, return_index=True, return_inverse=True, axis=0)
 
 
@@ -279,7 +277,7 @@ class model():
         # Create the sample graph
         graph_sample = {
             self.placeholders['unique_node_labels']: unique_label_subtokens,
-            self.placeholders['unique_node_labels_mask']: node_rep_mask[node_label_indices],
+            self.placeholders['unique_node_labels_mask']: node_rep_mask[unique_label_indices],
             self.placeholders['node_label_indices']: unique_label_inverse_indices,
             self.placeholders['slot_ids']: slot_ids,
             self.placeholders['slot_ids_mask']: slot_mask,
@@ -292,11 +290,8 @@ class model():
             self.placeholders['target_mask']: target_mask
         }
 
-        i = 0
-        for key in adj_lists:
-            graph_sample[self.placeholders['adjacency_lists'][i]] = adj_lists[key]
-            i += 1
-
+        for i in range(self.ggnn_params['n_edge_types']):
+            graph_sample[self.placeholders['adjacency_lists'][i]] = adj_lists[i]
 
         # Obtain variable name
         var_name = [self.vocabulary.get_name_for_id(token_id)
@@ -318,21 +313,15 @@ class model():
             timesteps = 8
             graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_node_seq_len, self.pad_token_id, self.vocabulary)
 
-            print("Pre-processed graph")
-
-            samples, labels, sample_meta_inf = [], [], []
-
+            samples, labels = [], []
 
             for sample in graph_samples:
-
                 new_sample, new_label = self.create_sample(*sample)
-
                 samples.append(new_sample)
                 labels.append(new_label)
 
 
-                # print("Size: ", new_sample[self.placeholders['node_label_indices']].shape[0])
-
+            sample_meta_inf = []
 
             for sym_var_node in sym_var_nodes:
                 new_inf = SampleMetaInformation(filepath, sym_var_node)
@@ -415,12 +404,12 @@ class model():
         all_node_reps = np.vstack(node_reps)
         node_rep_mask = all_node_reps != self.pad_token_id
 
-        unique_label_subtokens, node_label_indices, unique_label_inverse_indices = \
+        unique_label_subtokens, unique_label_indices, unique_label_inverse_indices = \
             np.unique(all_node_reps, return_index=True, return_inverse=True, axis=0)
 
         batch_sample = {
             self.placeholders['unique_node_labels']: unique_label_subtokens,
-            self.placeholders['unique_node_labels_mask']: node_rep_mask[node_label_indices],
+            self.placeholders['unique_node_labels_mask']: node_rep_mask[unique_label_indices],
             self.placeholders['node_label_indices']: unique_label_inverse_indices,
             self.placeholders['slot_ids']: np.vstack(slot_ids),
             self.placeholders['slot_ids_mask']: np.vstack(slot_masks),
@@ -450,7 +439,7 @@ class model():
 
         graph_samples, labels, _ = self.get_samples_with_inf(dir_path)
 
-        return graph_samples, labels, _
+        return graph_samples, labels
 
 
 
@@ -458,12 +447,13 @@ class model():
 
         graph_samples, labels, meta_sample_inf = [], [], []
 
-        n_files = sum([1 for dirpath, dirs, files in os.walk(dir_path) for filename in files if filename[-5:] == 'proto'])
+        n_files = sum([1 for dirpath, dirs, files in os.walk(dir_path) for filename in files if filename.endswith('proto')])
         n_processed = 0
 
         for dirpath, dirs, files in os.walk(dir_path):
             for filename in files:
-                if filename[-5:] == 'proto':
+                if filename.endswith('proto'):
+
                     fname = os.path.join(dirpath, filename)
 
                     new_samples, new_labels, new_inf = self.create_samples(fname)
@@ -488,13 +478,16 @@ class model():
 
     def train(self, corpus_path, n_epochs):
 
-        train_samples, tv, _ = self.get_samples(corpus_path)
+        train_samples, train_labels = self.get_samples(corpus_path)
 
         print("Obtained samples...", len(train_samples))
 
         losses = []
 
-        print("Train vals: ", tv)
+
+        unique_labels = list(set([subtoken for subtokens in train_labels for subtoken in subtokens]))
+        print("Train vals: ", unique_labels)
+
 
         with self.graph.as_default():
 
@@ -510,6 +503,13 @@ class model():
                 print("Average Epoch Loss:", (loss/len(train_samples)))
                 print("Epoch: ", epoch + 1, "/", n_epochs)
                 print("---------------------------------------------")
+
+
+                # Save model every 100 epochs:
+                if epoch % 100 == 0:
+                    saver = tf.train.Saver()
+                    saver.save(self.sess, self.checkpoint_path)
+
 
             saver = tf.train.Saver()
             saver.save(self.sess, self.checkpoint_path)
@@ -547,11 +547,12 @@ class model():
 
     def infer(self, corpus_path):
 
-        test_samples, test_labels, sample_inf = self.get_samples(corpus_path)
+        test_samples, test_labels, sample_inf = self.get_samples_with_inf(corpus_path)
 
-        print("Test vals: ", test_labels)
 
-        print(sample_inf)
+        unique_labels = list(set([subtoken for subtokens in train_labels for subtoken in subtokens]))
+        print("Test vals: ", unique_labels)
+
 
         with self.graph.as_default():
 
@@ -579,8 +580,6 @@ class model():
                     sample_inf[i].true_label = test_labels[i]
 
 
-            print('predicted: ', len(predicted_names))
-
             accuracy = self.process_predictions(predicted_names, test_labels, sample_inf)
 
             print("Absolute accuracy: ", accuracy)
@@ -588,7 +587,7 @@ class model():
 
             meta_corpus = CorpusMetaInformation(sample_inf)
             #meta_corpus.process_sample_inf()
-            meta_corpus.compute_usage_clusters()
+            #meta_corpus.compute_usage_clusters()
 
 
 
