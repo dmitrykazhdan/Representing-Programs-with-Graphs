@@ -11,18 +11,20 @@ def get_train_and_test():
         cfg = yaml.load(ymlfile)
 
     corpus_path = cfg['corpus_path']
-    train_path = cfg['train_path']
-    test_path = cfg['test_path']
+    train_path  = cfg['train_path']
+    test_path   = cfg['test_path']
 
     f_names = []
     ignore = ("Test.java.proto", "TestCase.java.proto", "Tests.java.proto") # Ignore test cases
-    max_size_mb = 20          # maximum file size in MB
+    max_size_mb = 5          # maximum file size in MB
 
 
     # Extract all filenames from corpus folders
     for dirpath, dirs, files in os.walk(corpus_path):
         for filename in files:
             if filename.endswith('proto') and not filename.endswith(ignore):
+
+                fname = os.path.join(dirpath, filename)
 
                 f_size = os.path.getsize(fname) / 1000000
 
@@ -33,7 +35,7 @@ def get_train_and_test():
 
 
     # Copy subset of samples into training/testing directories
-    n_samples = 10
+    n_samples = 100
     n_train = round(n_samples * 0.8)
     shuffle(f_names)
 

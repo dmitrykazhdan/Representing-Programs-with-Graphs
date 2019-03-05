@@ -17,8 +17,8 @@ class model():
         self.checkpoint_path = checkpoint_path
         self.max_node_seq_len = 32                          # Maximum number of node subtokens
         self.max_var_seq_len = 16                           # Maximum number of variable subtokens
-        self.max_slots = 128                                # Maximum number of variable occurrences
-        self.batch_size = 2000                              # Number of nodes per batch sample
+        self.max_slots = 64                                 # Maximum number of variable occurrences
+        self.batch_size = 8000                              # Number of nodes per batch sample
         self.enable_batching = True
         self.learning_rate = 0.001
         self.ggnn_params = self.get_gnn_params()
@@ -28,7 +28,7 @@ class model():
         self.sos_token_id = self.vocabulary.get_id_or_unk('sos_token')
         self.pad_token_id = self.vocabulary.get_id_or_unk(self.vocabulary.get_pad())
         self.embedding_size = self.ggnn_params['hidden_size']
-        self.ggnn_dropout = 0.9
+        self.ggnn_dropout = 1.0
 
         if mode != 'train' and mode != 'infer':
             raise ValueError("Invalid mode. Please specify \'train\' or \'infer\'...")
@@ -36,19 +36,17 @@ class model():
 
         # Create model
         self.graph = tf.Graph()
-        self.sess = tf.Session(graph=self.graph)
         self.mode = mode
 
         with self.graph.as_default():
 
             self.placeholders = {}
             self.make_model()
+            self.sess = tf.Session(graph=self.graph, config=tf.ConfigProto())
 
             if self.mode == 'train':
                 self.make_train_step()
-
-            init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-            self.sess.run(init_op)
+                self.sess.run(tf.global_variables_initializer())
 
 
         print ("Model built successfully...")
@@ -107,29 +105,29 @@ class model():
         self.placeholders['target_mask'] = tf.placeholder(tf.float32, [self.placeholders['decoder_targets'].shape[0], self.max_var_seq_len], name='target_mask')
 
 
+        self.placeholders['num_samples_in_batch'] = tf.placeholder(dtype=tf.float32, shape=(1), name='num_samples_in_batch')
 
 
     def make_initial_node_representation(self):
 
         # Compute the embedding of input node sub-tokens
-        embedding_encoder = tf.get_variable('embedding_encoder', [self.voc_size, self.embedding_size])
+        self.embedding_encoder = tf.get_variable('embedding_encoder', [self.voc_size, self.embedding_size])
 
-        subtoken_embedding = tf.nn.embedding_lookup(params=embedding_encoder, ids=self.placeholders['unique_node_labels'])
+        self.subtoken_embedding = tf.nn.embedding_lookup(params=self.embedding_encoder, ids=self.placeholders['unique_node_labels'])
 
-        subtoken_ids_mask = tf.reshape(self.placeholders['unique_node_labels_mask'], [-1, self.max_node_seq_len, 1])
+        self.subtoken_ids_mask = tf.reshape(self.placeholders['unique_node_labels_mask'], [-1, self.max_node_seq_len, 1])
 
-        subtoken_embedding = subtoken_ids_mask * subtoken_embedding
+        self.subtoken_embedding = self.subtoken_ids_mask * self.subtoken_embedding
 
-        unique_label_representations = tf.reduce_sum(subtoken_embedding, axis=1)
+        self.unique_label_representations = tf.reduce_sum(self.subtoken_embedding, axis=1)
 
-        num_subtokens = tf.reduce_sum(subtoken_ids_mask, axis=1)
+        self.num_subtokens = tf.reduce_sum(self.subtoken_ids_mask, axis=1)
 
-        unique_label_representations /= num_subtokens
+        self.unique_label_representations /= self.num_subtokens
 
-        node_label_representations = tf.gather(params=unique_label_representations,
+        self.node_label_representations = tf.gather(params=self.unique_label_representations,
                                                indices=self.placeholders['node_label_indices'])
 
-        return node_label_representations
 
 
 
@@ -137,13 +135,12 @@ class model():
 
         self.make_inputs()
 
-        # Get initial embeddings for every node
-        initial_representation = self.make_initial_node_representation()
+        self.make_initial_node_representation()
 
         # Run graph through GGNN layer
-        gnn_model = SparseGGNN(self.ggnn_params)
-        gnn_representation = gnn_model.sparse_gnn_layer(self.ggnn_dropout,
-                                                        initial_representation,
+        self.gnn_model = SparseGGNN(self.ggnn_params)
+        self.gnn_representation = self.gnn_model.sparse_gnn_layer(self.ggnn_dropout,
+                                                        self.node_label_representations,
                                                         self.placeholders['adjacency_lists'],
                                                         self.placeholders['num_incoming_edges_per_type'],
                                                         self.placeholders['num_outgoing_edges_per_type'],
@@ -151,74 +148,74 @@ class model():
 
 
         # Compute average of <SLOT> usage representations
-        self.avg_representation = tf.gather(gnn_representation, self.placeholders['slot_ids'])
-        slot_mask = tf.reshape(self.placeholders['slot_ids_mask'], [-1, self.max_slots, 1])
-        slot_embedding = slot_mask * self.avg_representation
-        self.avg_representation = tf.reduce_sum(slot_embedding, axis=1)
-        num_slots = tf.reduce_sum(slot_mask, axis=1)
-        self.avg_representation /= num_slots
+        self.avg_representation = tf.gather(self.gnn_representation, self.placeholders['slot_ids'])
+        self.slot_mask = tf.reshape(self.placeholders['slot_ids_mask'], [-1, self.max_slots, 1])
+        self.slot_embedding = self.slot_mask * self.avg_representation
+        self.avg_representation = tf.reduce_sum(self.slot_embedding, axis=1)
+        self.num_slots = tf.reduce_sum(self.slot_mask, axis=1)
+        self.avg_representation /= self.num_slots
 
 
         # Obtain output sequence by passing through a single GRU layer
-        embedding_decoder = tf.get_variable('embedding_decoder', [self.voc_size, self.embedding_size])
-        decoder_cell = tf.nn.rnn_cell.GRUCell(self.embedding_size)
-        decoder_initial_state = self.avg_representation
-        projection_layer = tf.layers.Dense(self.voc_size, use_bias=False)
+        self.embedding_decoder = tf.get_variable('embedding_decoder', [self.voc_size, self.embedding_size])
+        self.decoder_cell = tf.nn.rnn_cell.GRUCell(self.embedding_size)
+        self.decoder_initial_state = self.avg_representation
+        self.projection_layer = tf.layers.Dense(self.voc_size, use_bias=False)
 
 
         if self.mode == 'train':
 
-            decoder_embedding_inputs = tf.nn.embedding_lookup(embedding_decoder, self.placeholders['decoder_inputs'])
+            self.decoder_embedding_inputs = tf.nn.embedding_lookup(self.embedding_decoder, self.placeholders['decoder_inputs'])
 
             # Define training sequence decoder
-            train_helper = tf.contrib.seq2seq.TrainingHelper(decoder_embedding_inputs,
+            self.train_helper = tf.contrib.seq2seq.TrainingHelper(self.decoder_embedding_inputs,
                                                              self.placeholders['decoder_targets_length']
                                                                   , time_major=True)
 
-            train_decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell, train_helper,
-                                                                 initial_state=decoder_initial_state,
-                                                                 output_layer=projection_layer)
+            self.train_decoder = tf.contrib.seq2seq.BasicDecoder(self.decoder_cell, self.train_helper,
+                                                                 initial_state=self.decoder_initial_state,
+                                                                 output_layer=self.projection_layer)
 
-            decoder_outputs_train, _, _ = tf.contrib.seq2seq.dynamic_decode(train_decoder)
+            self.decoder_outputs_train, _, _ = tf.contrib.seq2seq.dynamic_decode(self.train_decoder)
 
-            self.decoder_logits_train = decoder_outputs_train.rnn_output
+            self.decoder_logits_train = self.decoder_outputs_train.rnn_output
 
 
 
         elif self.mode == 'infer':
 
-            end_token = self.pad_token_id
-            max_iterations = self.max_var_seq_len
+            self.end_token = self.pad_token_id
+            self.max_iterations = self.max_var_seq_len
 
-            inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(embedding_decoder,
-                                                              start_tokens=self.placeholders['sos_tokens'], end_token=end_token)
+            self.inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.embedding_decoder,
+                                                              start_tokens=self.placeholders['sos_tokens'], end_token=self.end_token)
 
 
-            inference_decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell, inference_helper,
-                                                                     initial_state=decoder_initial_state,
-                                                                     output_layer=projection_layer)
+            self.inference_decoder = tf.contrib.seq2seq.BasicDecoder(self.decoder_cell, self.inference_helper,
+                                                                     initial_state=self.decoder_initial_state,
+                                                                     output_layer=self.projection_layer)
 
-            outputs_inference, _, _ = tf.contrib.seq2seq.dynamic_decode(inference_decoder,
-                                                                            maximum_iterations=max_iterations)
+            self.outputs_inference, _, _ = tf.contrib.seq2seq.dynamic_decode(self.inference_decoder,
+                                                                            maximum_iterations=self.max_iterations)
 
-            self.predictions = outputs_inference.sample_id
+            self.predictions = self.outputs_inference.sample_id
 
 
 
 
     def make_train_step(self):
 
-        crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'], logits=self.decoder_logits_train)
-        self.train_loss = tf.reduce_sum(crossent * self.placeholders['target_mask'])
+        self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'], logits=self.decoder_logits_train)
+        self.train_loss = tf.reduce_sum(self.crossent * self.placeholders['target_mask']) / self.placeholders['num_samples_in_batch']
 
         # Calculate and clip gradients
-        train_vars = tf.trainable_variables()
-        gradients = tf.gradients(self.train_loss, train_vars)
-        clipped_gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
+        self.train_vars = tf.trainable_variables()
+        self.gradients = tf.gradients(self.train_loss, self.train_vars)
+        self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, 5.0)
 
         # Optimization
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-        self.train_step = self.optimizer.apply_gradients(zip(clipped_gradients, train_vars))
+        self.train_step = self.optimizer.apply_gradients(zip(self.clipped_gradients, self.train_vars))
 
 
 
@@ -287,7 +284,8 @@ class model():
             self.placeholders['decoder_inputs']: decoder_inputs,
             self.placeholders['sos_tokens']: start_tokens,
             self.placeholders['decoder_targets_length']: np.ones((1)) * self.max_var_seq_len,
-            self.placeholders['target_mask']: target_mask
+            self.placeholders['target_mask']: target_mask,
+            self.placeholders['num_samples_in_batch']: np.ones((1))
         }
 
         for i in range(self.ggnn_params['n_edge_types']):
@@ -311,7 +309,7 @@ class model():
             g.ParseFromString(f.read())
 
             timesteps = 8
-            graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_node_seq_len, self.pad_token_id, self.vocabulary)
+            graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_slots, self.max_node_seq_len, self.pad_token_id, self.vocabulary)
 
             samples, labels = [], []
 
@@ -419,7 +417,8 @@ class model():
             self.placeholders['decoder_inputs']: np.hstack(decoder_inputs),
             self.placeholders['sos_tokens']: start_tokens,
             self.placeholders['decoder_targets_length']: np.hstack(decoder_targets_length),
-            self.placeholders['target_mask']: np.vstack(decoder_masks)
+            self.placeholders['target_mask']: np.vstack(decoder_masks),
+            self.placeholders['num_samples_in_batch']: np.ones((1)) * len(decoder_targets)
         }
 
         for i in range(self.ggnn_params['n_edge_types']):
@@ -470,7 +469,9 @@ class model():
         zipped = list(zip(graph_samples, labels, meta_sample_inf))
         shuffle(zipped)
         graph_samples, labels, meta_sample_inf = zip(*zipped)
-        graph_samples, labels = self.make_batch_samples(graph_samples, labels)
+
+        if self.enable_batching:
+            graph_samples, labels = self.make_batch_samples(graph_samples, labels)
 
         return graph_samples, labels, meta_sample_inf
 
@@ -525,10 +526,10 @@ class model():
 
         for i in range(len(predictions)):
 
-            print("Predicted: ", predictions[i])
-            print("Actual: ", test_labels[i])
-            print("")
-            print("")
+            # print("Predicted: ", predictions[i])
+            # print("Actual: ", test_labels[i])
+            # print("")
+            # print("")
 
             if predictions[i] == test_labels[i]:
                 n_correct += 1

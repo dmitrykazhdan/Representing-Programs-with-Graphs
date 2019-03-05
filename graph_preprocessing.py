@@ -27,7 +27,7 @@ def get_used_nodes_type():
 
 
 
-def compute_sub_graphs(graph, timesteps, seq_length, pad_token, vocabulary):
+def compute_sub_graphs(graph, timesteps, var_seq_length, node_seq_length, pad_token, vocabulary):
 
     successor_table = defaultdict(set)
     predecessor_table = defaultdict(set)
@@ -61,11 +61,7 @@ def compute_sub_graphs(graph, timesteps, seq_length, pad_token, vocabulary):
 
 
         # Ensure variable has at least one usage
-        if len(var_identifier_node_ids) == 0:
-
-            print("Var node with no identifier tokens: ", node_table[sym_var_node_id].contents)
-
-            continue
+        if len(var_identifier_node_ids) == 0 or len(var_identifier_node_ids) > var_seq_length: continue
 
 
         reachable_node_ids = []
@@ -90,7 +86,7 @@ def compute_sub_graphs(graph, timesteps, seq_length, pad_token, vocabulary):
 
         sub_graph = (sub_nodes, sub_edges)
 
-        sample_data = compute_sample_data(sub_graph, var_identifier_node_ids, seq_length, pad_token, vocabulary)
+        sample_data = compute_sample_data(sub_graph, var_identifier_node_ids, node_seq_length, pad_token, vocabulary)
         samples.append(sample_data)
         non_empty_sym_nodes.append(sym_var_node_id)
 

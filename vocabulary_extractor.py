@@ -33,13 +33,14 @@ def create_vocabulary_from_corpus(training_corpus_path, output_token_path=None):
     all_sub_tokens.append('sos_token')
     all_sub_tokens.sort()
 
+    vocabulary = __create_voc_from_tokens(all_sub_tokens)
 
     # Save all extracted subtokens
     if output_token_path != None:
         with open(output_token_path, "wb") as fp:
-            pickle.dump(all_sub_tokens, fp)
+            pickle.dump(vocabulary, fp)
 
-    return __create_voc_from_tokens(all_sub_tokens)
+    return vocabulary
 
 
 
@@ -49,9 +50,9 @@ def load_vocabulary(token_path):
         raise ValueError("Error. File not found...")
 
     with open(token_path, "rb") as fp:
-        sub_tokens = pickle.load(fp)
+        vocabulary = pickle.load(fp)
 
-    return __create_voc_from_tokens(sub_tokens)
+    return vocabulary
 
 
 
