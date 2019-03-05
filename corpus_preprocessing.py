@@ -15,7 +15,7 @@ def get_train_and_test():
     test_path = cfg['test_path']
 
     f_names = []
-    ignore = ("Test.java.proto", "TestCase.java.proto") # Ignore test cases
+    ignore = ("Test.java.proto", "TestCase.java.proto", "Tests.java.proto") # Ignore test cases
     max_size_mb = 20          # maximum file size in MB
 
 
@@ -33,7 +33,7 @@ def get_train_and_test():
 
 
     # Copy subset of samples into training/testing directories
-    n_samples = 500
+    n_samples = 10
     n_train = round(n_samples * 0.8)
     shuffle(f_names)
 

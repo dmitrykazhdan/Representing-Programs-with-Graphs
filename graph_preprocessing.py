@@ -18,12 +18,10 @@ def get_used_edges_type():
 
 def get_used_nodes_type():
 
-    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN]
-
-       # ,
-       #                 FeatureNode.COMMENT_LINE, FeatureNode.COMMENT_BLOCK, FeatureNode.COMMENT_JAVADOC,
-       #                 FeatureNode.FAKE_AST, FeatureNode.SYMBOL, FeatureNode.SYMBOL_TYP,
-       #                 FeatureNode.SYMBOL_MTH, FeatureNode.TYPE]
+    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN,
+                       FeatureNode.COMMENT_LINE,
+                       FeatureNode.FAKE_AST, FeatureNode.SYMBOL_TYP,
+                       FeatureNode.SYMBOL_MTH, FeatureNode.TYPE]
 
     return used_node_types
 

@@ -18,14 +18,14 @@ def main():
   print("Constructed vocabulary...")
 
   m = model(mode='train', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
-  n_train_epochs = 3
+  n_train_epochs = 100
   m.train(train_path, n_train_epochs)
 
 
   # Run inference
-  # vocabulary = vocabulary_extractor.load_vocabulary(token_path)
-  # m = model(mode='infer', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
-  # m.infer(test_path)
+  vocabulary = vocabulary_extractor.load_vocabulary(token_path)
+  m = model(mode='infer', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
+  m.infer(test_path)
 
 
 main()

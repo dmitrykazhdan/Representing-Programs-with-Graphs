@@ -463,8 +463,8 @@ class model():
                         labels += new_labels
                         meta_sample_inf += new_inf
 
-                n_processed += 1
-                print("Processed ", n_processed/n_files * 100, "% of files...")
+                    n_processed += 1
+                    print("Processed ", n_processed/n_files * 100, "% of files...")
 
 
         zipped = list(zip(graph_samples, labels, meta_sample_inf))
@@ -485,7 +485,7 @@ class model():
         losses = []
 
 
-        unique_labels = list(set([subtoken for subtokens in train_labels for subtoken in subtokens]))
+        unique_labels = sorted(list(set([subtoken for subtokens in train_labels for subtoken in subtokens])))
         print("Train vals: ", unique_labels)
 
 
@@ -549,8 +549,7 @@ class model():
 
         test_samples, test_labels, sample_inf = self.get_samples_with_inf(corpus_path)
 
-
-        unique_labels = list(set([subtoken for subtokens in train_labels for subtoken in subtokens]))
+        unique_labels =  sorted(list(set([subtoken for subtokens in test_labels for subtoken in subtokens])))
         print("Test vals: ", unique_labels)
 
 
