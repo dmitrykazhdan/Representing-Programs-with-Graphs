@@ -578,8 +578,10 @@ class model():
 
                     predicted_names.append(predicted_name)
 
+                    #print(usage_reps[i])
+
                     sample_inf[i + offset].usage_rep = usage_reps[i]
-                    sample_inf[i + offset].true_label = test_labels[i]
+                    sample_inf[i + offset].true_label = test_labels[i + offset]
 
                 offset += len(predictions)
 
@@ -588,13 +590,38 @@ class model():
             print("Absolute accuracy: ", accuracy)
 
 
-            meta_corpus = CorpusMetaInformation(sample_inf)
+            #meta_corpus = CorpusMetaInformation(sample_inf)
             #meta_corpus.process_sample_inf()
-            meta_corpus.compute_usage_clusters()
+            #meta_corpus.compute_usage_clusters()
+
+
+        return test_samples, test_labels, sample_inf
 
 
 
+    def compare_labels(self, train_path, test_path):
 
+        train_samples, train_labels = self.get_samples(train_path)
+        test_samples, test_labels, sample_infs = self.infer(test_path)
+
+        seen_correct, seen_incorrect, unseen_correct, unseen_incorrect = 0, 0, 0, 0
+
+        for i, sample_inf in enumerate(sample_infs):
+
+            if test_labels[i] in train_labels and sample_inf.predicted_correctly:
+                seen_correct += 1
+            elif test_labels[i] in train_labels and not sample_inf.predicted_correctly:
+                seen_incorrect += 1
+            elif test_labels[i] not in train_labels and sample_inf.predicted_correctly:
+                unseen_correct += 1
+            else:
+                unseen_incorrect += 1
+
+
+        print("Seen, correctly predicted: ", seen_correct)
+        print("Seen, incorrectly predicted: ", seen_incorrect)
+        print("Unseen, predicted correctly: ", unseen_correct)
+        print("Unseen, predicted incorrectly: ", unseen_incorrect)
 
 
 

@@ -21,8 +21,6 @@ class SampleMetaInformation():
 
     def compute_var_type(self):
 
-        return 0
-
         if self.type != None: return self.type
 
 
@@ -77,6 +75,18 @@ class CorpusMetaInformation():
         labels_with_names = sorted(labels_with_names, key=lambda x: x[0])
 
         print(labels_with_names)
+
+
+
+    # def compute_closest(self):
+    #
+    #     incorrect_samples = [self.sample_meta_inf[i] for i in range(len(self.sample_meta_inf)) if self.sample_meta_inf[i].predicted_correctly == True]
+    #     correct_samples = [self.sample_meta_inf[i] for i in range(len(self.sample_meta_inf)) if self.sample_meta_inf[i].predicted_correctly == False]
+    #
+    #     for incorrect_sample in incorrect_samples:
+    #
+    #
+
 
 
 
@@ -173,7 +183,10 @@ def get_var_type(graph, sym_var_node_id):
 
 
     fake_ast_type = [n for n in successors[ast_parent]
-                     if id_dict[n].type == FeatureNode.FAKE_AST and id_dict[n].contents == "TYPE"][0]
+                     if id_dict[n].type == FeatureNode.FAKE_AST and id_dict[n].contents == "TYPE"]
+
+    if len(fake_ast_type) == 0: return None
+    else: fake_ast_type = fake_ast_type[0]
 
     fake_ast_type_succ = list(successors[fake_ast_type])[0]
 
