@@ -5,7 +5,6 @@ from sklearn.cluster import KMeans
 import numpy as np
 
 
-# Currently sample meta-information consists of the graph filename and the sym_var node id
 class SampleMetaInformation():
 
     def __init__(self, sample_fname, node_id):
@@ -17,6 +16,7 @@ class SampleMetaInformation():
         self.usages = None
         self.usage_rep = None
         self.true_label = None
+        self.predicted_label = None
 
 
     def compute_var_type(self):
@@ -71,21 +71,14 @@ class CorpusMetaInformation():
 
         kmeans = KMeans(n_clusters=10).fit(usage_arr)
 
-        labels_with_names = [[kmeans.labels_[i], self.sample_meta_inf[i].true_label] for i in range(len(self.sample_meta_inf)) if self.sample_meta_inf[i].predicted_correctly == True]
+        labels_with_names = [[kmeans.labels_[i], self.sample_meta_inf[i].true_label, self.predicted_label]
+                             for i in range(len(self.sample_meta_inf)) if self.sample_meta_inf[i].predicted_correctly == True]
+
         labels_with_names = sorted(labels_with_names, key=lambda x: x[0])
 
         print(labels_with_names)
 
 
-
-    # def compute_closest(self):
-    #
-    #     incorrect_samples = [self.sample_meta_inf[i] for i in range(len(self.sample_meta_inf)) if self.sample_meta_inf[i].predicted_correctly == True]
-    #     correct_samples = [self.sample_meta_inf[i] for i in range(len(self.sample_meta_inf)) if self.sample_meta_inf[i].predicted_correctly == False]
-    #
-    #     for incorrect_sample in incorrect_samples:
-    #
-    #
 
 
 
@@ -114,7 +107,7 @@ class CorpusMetaInformation():
             #print("Type: ", sample_inf.type)
 
 
-        for i in range(20):
+        for i in range(64):
 
             if incorr_usage_classes[i] != 0 or  corr_usage_classes[i] != 0:
                 print(str(i) + " usages: ", incorr_usage_classes[i], " (incorrect)      ", corr_usage_classes[i], " (correct)")
@@ -157,8 +150,6 @@ def compute_id_dict(graph):
 
 def get_var_type(graph, sym_var_node_id):
 
-    return 0
-
     id_dict = compute_id_dict(graph)
     successors, predecessors = compute_successors_and_predecessors(graph)
 
@@ -166,14 +157,14 @@ def get_var_type(graph, sym_var_node_id):
 
     ast_parent = -1
 
-    print("var: ", id_dict[sym_var_node_id].contents)
+    #print("var: ", id_dict[sym_var_node_id].contents)
 
     for id_token_node in id_token_nodes:
         for parent_id in predecessors[id_token_node]:
 
-            print("-----")
-            print(id_dict[parent_id].contents)
-            print("-----")
+            # print("-----")
+            # print(id_dict[parent_id].contents)
+            # print("-----")
 
             if id_dict[parent_id].type == FeatureNode.AST_ELEMENT and id_dict[parent_id].contents == "VARIABLE":
                 ast_parent = parent_id
@@ -181,20 +172,27 @@ def get_var_type(graph, sym_var_node_id):
 
         if ast_parent != -1: break
 
+
     if ast_parent == -1:
-        return None
-        raise ValueError('AST_ELEMENT VARIABLE node not found...')
+        return -1
+        #raise ValueError('AST_ELEMENT VARIABLE node not found...')
 
 
     fake_ast_type = [n for n in successors[ast_parent]
                      if id_dict[n].type == FeatureNode.FAKE_AST and id_dict[n].contents == "TYPE"]
 
-    if len(fake_ast_type) == 0: return None
+    if len(fake_ast_type) == 0: return -1
     else: fake_ast_type = fake_ast_type[0]
 
-    fake_ast_type_succ = list(successors[fake_ast_type])[0]
+    fake_ast_type_succ = list(successors[fake_ast_type])
 
-    type = [id_dict[n].contents for n in successors[fake_ast_type_succ] if id_dict[n].type == FeatureNode.TYPE][0]
+    if len(fake_ast_type_succ) == 0: return -1
+    else: fake_ast_type_succ = fake_ast_type_succ[0]
+
+    type = [id_dict[n].contents for n in successors[fake_ast_type_succ] if id_dict[n].type == FeatureNode.TYPE]
+
+    if len(type) == 0: return -1
+    else: type = type[0]
 
     return type
 

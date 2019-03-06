@@ -54,7 +54,7 @@ def compute_sub_graphs(graph, timesteps, var_seq_length, node_seq_length, pad_to
 
     for sym_var_node_id in sym_var_node_ids:
 
-        successor_ids = list(successor_table[sym_var_node_id])
+        successor_ids = successor_table[sym_var_node_id]
 
         var_identifier_node_ids = [node_id for node_id in successor_ids
                                 if node_table[node_id].type == FeatureNode.IDENTIFIER_TOKEN]
@@ -71,12 +71,12 @@ def compute_sub_graphs(graph, timesteps, var_seq_length, node_seq_length, pad_to
         for _ in range(timesteps):
             reachable_node_ids += successor_ids
             reachable_node_ids += predecessor_ids
-            successor_ids = list(set([elem for n_id in successor_ids for elem in list(successor_table[n_id])]))
-            predecessor_ids = list(set([elem for n_id in predecessor_ids for elem in list(predecessor_table[n_id])]))
+            successor_ids = list(set([elem for n_id in successor_ids for elem in successor_table[n_id]]))
+            predecessor_ids = list(set([elem for n_id in predecessor_ids for elem in predecessor_table[n_id]]))
 
         reachable_node_ids += successor_ids
         reachable_node_ids += predecessor_ids
-        reachable_node_ids = list(set(reachable_node_ids))
+        reachable_node_ids = set(reachable_node_ids)
 
 
         sub_nodes = [node_table[node_id] for node_id in reachable_node_ids]

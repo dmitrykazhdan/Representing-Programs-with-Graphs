@@ -36,7 +36,7 @@ def get_train_and_test():
 
     # Copy subset of samples into training/testing directories
     n_samples = len(f_names)
-    n_train = round(n_samples * 0.8)
+    n_train = round(n_samples * 0.85)
     shuffle(f_names)
 
     train_samples = f_names[:n_train]

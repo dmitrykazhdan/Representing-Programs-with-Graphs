@@ -1,9 +1,8 @@
 import os
 import yaml
-from collections import defaultdict
 from graph_pb2 import Graph
 from dpu_utils.codeutils import split_identifier_into_parts
-from graph_pb2 import FeatureNode, FeatureEdge
+from graph_pb2 import FeatureNode
 import graph_preprocessing
 
 
@@ -12,11 +11,11 @@ def compute_corpus_stats():
     with open("config.yml", 'r') as ymlfile:
         cfg = yaml.load(ymlfile)
 
-    train_path = cfg['corpus_path']
+    corpus_path = cfg['corpus_path']
 
     max_node_len, max_var_len, max_var_usage = 0, 0, 0
 
-    for dirpath, dirs, files in os.walk(train_path):
+    for dirpath, dirs, files in os.walk(corpus_path):
         for filename in files:
             if filename.endswith('proto'):
 
@@ -32,7 +31,8 @@ def compute_corpus_stats():
 
                     for node in g.node:
 
-                        if node.type not in graph_preprocessing.get_used_nodes_type() and node.type != FeatureNode.SYMBOL_VAR: continue
+                        if node.type not in graph_preprocessing.get_used_nodes_type() \
+                                and node.type != FeatureNode.SYMBOL_VAR: continue
 
                         node_len = len(split_identifier_into_parts(node.contents))
 
@@ -40,9 +40,10 @@ def compute_corpus_stats():
 
                         if node.type == FeatureNode.SYMBOL_VAR:
 
+                            sym_var_node_usages[node.id] = 0
+
                             if node_len > max_var_len: max_var_len = node_len
 
-                            sym_var_node_usages[node.id] = 0
 
                         elif node.type == FeatureNode.IDENTIFIER_TOKEN:
                             identifier_node_ids.append(node.id)
