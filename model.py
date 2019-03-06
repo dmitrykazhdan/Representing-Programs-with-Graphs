@@ -517,19 +517,40 @@ class model():
 
 
 
-    def process_predictions(selfs, predictions, test_labels, sample_inf):
+
+    def compute_f1_score(self, prediction, test_label):
+
+        tp = sum([1 for token in test_label if token in prediction])
+
+        pr = tp / len(prediction)
+        rec = tp / len(test_label)
+
+        if tp == 0: return 0
+
+        f1 = 2 * pr * rec / (pr + rec)
+
+        return f1
+
+
+    def process_predictions(self, predictions, test_labels, sample_inf):
 
         n_correct = 0
+        f1 = 0
+        n_nonzero = 0
 
         print("Predictions: ", len(predictions))
         print("Test labels: ", len(test_labels))
 
         for i in range(len(predictions)):
 
-            # print("Predicted: ", predictions[i])
-            # print("Actual: ", test_labels[i])
-            # print("")
-            # print("")
+            print("Predicted: ", predictions[i])
+            print("Actual: ", test_labels[i])
+            print("")
+            print("")
+
+            if len(predictions[i]) > 0:
+                n_nonzero += 1
+                f1 += self.compute_f1_score(predictions[i], test_labels[i])
 
             if predictions[i] == test_labels[i]:
                 n_correct += 1
@@ -541,7 +562,9 @@ class model():
 
         accuracy = n_correct / len(test_labels) * 100
 
-        return accuracy
+        f1 /= n_nonzero
+
+        return accuracy, f1
 
 
 
@@ -585,12 +608,13 @@ class model():
 
                 offset += len(predictions)
 
-            accuracy = self.process_predictions(predicted_names, test_labels, sample_inf)
+            accuracy, f1 = self.process_predictions(predicted_names, test_labels, sample_inf)
 
             print("Absolute accuracy: ", accuracy)
+            print("F1 score: ", f1)
 
 
-            #meta_corpus = CorpusMetaInformation(sample_inf)
+            meta_corpus = CorpusMetaInformation(sample_inf)
             #meta_corpus.process_sample_inf()
             #meta_corpus.compute_usage_clusters()
 

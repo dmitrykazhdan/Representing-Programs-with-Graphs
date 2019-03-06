@@ -97,7 +97,7 @@ class CorpusMetaInformation():
 
         for sample_inf in self.sample_meta_inf:
 
-            print("filename: ", sample_inf.fname)
+            #print("filename: ", sample_inf.fname)
             sample_inf.compute_var_usages()
             sample_inf.compute_var_type()
 
@@ -109,18 +109,20 @@ class CorpusMetaInformation():
                 incorr_type_classes[sample_inf.type] += 1
 
 
-            print("Usage: ", sample_inf.usages)
-            print("Type: ", sample_inf.type)
+
+            #print("Usage: ", sample_inf.usages)
+            #print("Type: ", sample_inf.type)
 
 
         for i in range(20):
-            print(str(i) + " usages: ")
-            print(incorr_usage_classes[i], corr_usage_classes[i])
-            print("")
 
-            print("types: ")
-            print(incorr_type_classes[i], corr_type_classes[i])
-            print("")
+            if incorr_usage_classes[i] != 0 or  corr_usage_classes[i] != 0:
+                print(str(i) + " usages: ", incorr_usage_classes[i], " (incorrect)      ", corr_usage_classes[i], " (correct)")
+                print("")
+
+            # print("types: ")
+            # print(incorr_type_classes[i], corr_type_classes[i])
+            # print("")
 
 
 
@@ -154,6 +156,8 @@ def compute_id_dict(graph):
 
 
 def get_var_type(graph, sym_var_node_id):
+
+    return 0
 
     id_dict = compute_id_dict(graph)
     successors, predecessors = compute_successors_and_predecessors(graph)
