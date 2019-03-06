@@ -56,7 +56,7 @@ class model():
     def get_gnn_params(self):
 
         gnn_params = {}
-        gnn_params["n_edge_types"] = 10
+        gnn_params["n_edge_types"] = len(graph_preprocessing.get_used_edges_type())
         gnn_params["hidden_size"] = 64
         gnn_params["edge_features_size"] = {}
         gnn_params["add_backwards_edges"] = True
@@ -302,7 +302,8 @@ class model():
             g.ParseFromString(f.read())
 
             timesteps = 8
-            graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_slots, self.max_node_seq_len, self.pad_token_id, self.vocabulary)
+            graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_slots,
+                                                                                  self.max_node_seq_len, self.pad_token_id, self.slot_id, self.vocabulary, True)
 
             samples, labels = [], []
 
