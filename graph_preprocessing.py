@@ -183,3 +183,95 @@ def compute_sample_data(sub_graph, identifier_token_node_ids, seq_length, pad_to
 
 
 
+
+
+def get_method_bodies(graph, timesteps, var_seq_length, node_seq_length, pad_token, slot_token, vocabulary, kek):
+
+    successor_table = defaultdict(set)
+    predecessor_table = defaultdict(set)
+    edge_table = defaultdict(list)
+    node_table = {}
+    ast_elem_node_ids = []
+    samples = []
+    non_empty_ast_nodes = []
+
+    for node in graph.node:
+
+        node_table[node.id] = node
+
+        if node.type==FeatureNode.AST_ELEMENT and node.contents=='METHOD':
+            ast_elem_node_ids.append(node.id)
+
+
+
+    for edge in graph.edge:
+        successor_table[edge.sourceId].add(edge.destinationId)
+        predecessor_table[edge.destinationId].add(edge.sourceId)
+        edge_table[edge.sourceId].append(edge)
+
+
+
+    for ast_elem_node_id in ast_elem_node_ids:
+
+        successor_ids = successor_table[ast_elem_node_id]
+        predecessor_ids = predecessor_table[ast_elem_node_id]
+
+        method_name = [node_id for node_id in successor_ids
+                                if node_table[node_id].type == FeatureNode.IDENTIFIER_TOKEN]
+
+
+        sym_mth_parents = [node_id for node_id in predecessor_ids if node_table[node_id].type == FeatureNode.SYMBOL_MTH]
+        usage_node_ids = []
+
+
+        if len(sym_mth_parents) > 0:
+
+            usage_node_ids = [node_id for sym_mth_parent in sym_mth_parents
+                              for node_id in successor_table[sym_mth_parent]
+                              if node_table[node_id].type == FeatureNode.IDENTIFIER_TOKEN]
+
+
+        method_name += usage_node_ids
+
+        reachable_node_ids = [ast_elem_node_id]
+        changed = True
+
+        while changed:
+
+            changed = False
+            old_size = len(reachable_node_ids)
+
+            successor_ids = list(set([elem for n_id in reachable_node_ids for elem in successor_table[n_id]
+                                      if node_table[n_id].type != FeatureNode.IDENTIFIER_TOKEN and
+                                      node_table[n_id].type != FeatureNode.TOKEN]))
+
+            reachable_node_ids += successor_ids
+            reachable_node_ids = list(set(reachable_node_ids))
+
+            if old_size != len(reachable_node_ids): changed = True
+
+
+        mth_ids = list(set(reachable_node_ids).intersection(set(method_name)))
+
+        if len(mth_ids) == 0: continue
+
+        sub_nodes = [node_table[node_id] for node_id in reachable_node_ids]
+
+        sub_edges =  [edge for node in sub_nodes for edge in edge_table[node.id]
+                      if edge.sourceId in reachable_node_ids and edge.destinationId in reachable_node_ids]
+
+        sub_graph = (sub_nodes, sub_edges)
+
+        sample_data = compute_sample_data(sub_graph, mth_ids, node_seq_length, pad_token, slot_token, vocabulary)
+        samples.append(sample_data)
+        non_empty_ast_nodes.append(ast_elem_node_id)
+
+    return samples, non_empty_ast_nodes
+
+
+
+
+
+
+
+
