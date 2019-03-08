@@ -17,6 +17,7 @@ def get_train_and_test():
     f_names = []
     ignore = ("Test.java.proto", "TestCase.java.proto", "Tests.java.proto") # Ignore test cases
     max_size_mb = 5          # maximum file size in MB
+    min_size_mb = 0.05
 
 
     # Extract all filenames from corpus folders
@@ -28,7 +29,7 @@ def get_train_and_test():
 
                 f_size = os.path.getsize(fname) / 1000000
 
-                if f_size < max_size_mb:
+                if f_size < max_size_mb and f_names > min_size_mb:
                     fname = os.path.join(dirpath, filename)
                     f_names.append(fname)
 
