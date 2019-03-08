@@ -157,44 +157,44 @@ class model():
         self.projection_layer = tf.layers.Dense(self.voc_size, use_bias=False)
 
 
-        if self.mode == 'train':
 
-            decoder_embedding_inputs = tf.nn.embedding_lookup(self.embedding_decoder, self.placeholders['decoder_inputs'])
+        # Training
+        decoder_embedding_inputs = tf.nn.embedding_lookup(self.embedding_decoder, self.placeholders['decoder_inputs'])
 
-            # Define training sequence decoder
-            self.train_helper = tf.contrib.seq2seq.TrainingHelper(decoder_embedding_inputs,
-                                            self.placeholders['decoder_targets_length'],
-                                            time_major=True)
+        # Define training sequence decoder
+        self.train_helper = tf.contrib.seq2seq.TrainingHelper(decoder_embedding_inputs,
+                                        self.placeholders['decoder_targets_length'],
+                                        time_major=True)
 
-            self.train_decoder = tf.contrib.seq2seq.BasicDecoder(self.decoder_cell, self.train_helper,
+        self.train_decoder = tf.contrib.seq2seq.BasicDecoder(self.decoder_cell, self.train_helper,
+                                                             initial_state=decoder_initial_state,
+                                                             output_layer=self.projection_layer)
+
+        decoder_outputs_train, _, _ = tf.contrib.seq2seq.dynamic_decode(self.train_decoder)
+
+        self.decoder_logits_train = decoder_outputs_train.rnn_output
+
+
+
+
+
+
+        # Inference
+        end_token = self.pad_token_id
+        max_iterations = self.max_var_seq_len
+
+        self.inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.embedding_decoder,
+                                                          start_tokens=self.placeholders['sos_tokens'], end_token=end_token)
+
+
+        self.inference_decoder = tf.contrib.seq2seq.BasicDecoder(self.decoder_cell, self.inference_helper,
                                                                  initial_state=decoder_initial_state,
                                                                  output_layer=self.projection_layer)
 
-            decoder_outputs_train, _, _ = tf.contrib.seq2seq.dynamic_decode(self.train_decoder)
+        outputs_inference, _, _ = tf.contrib.seq2seq.dynamic_decode(self.inference_decoder,
+                                                                        maximum_iterations=max_iterations)
 
-            self.decoder_logits_train = decoder_outputs_train.rnn_output
-
-
-
-
-
-        elif self.mode == 'infer':
-
-            end_token = self.pad_token_id
-            max_iterations = self.max_var_seq_len
-
-            self.inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.embedding_decoder,
-                                                              start_tokens=self.placeholders['sos_tokens'], end_token=end_token)
-
-
-            self.inference_decoder = tf.contrib.seq2seq.BasicDecoder(self.decoder_cell, self.inference_helper,
-                                                                     initial_state=decoder_initial_state,
-                                                                     output_layer=self.projection_layer)
-
-            outputs_inference, _, _ = tf.contrib.seq2seq.dynamic_decode(self.inference_decoder,
-                                                                            maximum_iterations=max_iterations)
-
-            self.predictions = outputs_inference.sample_id
+        self.predictions = outputs_inference.sample_id
 
 
 
@@ -302,7 +302,7 @@ class model():
             g.ParseFromString(f.read())
 
             timesteps = 8
-            graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_slots,
+            graph_samples, sym_var_nodes = graph_preprocessing.get_method_bodies(g, timesteps, self.max_slots,
                                                                                   self.max_node_seq_len, self.pad_token_id, self.slot_id, self.vocabulary, True)
 
             samples, labels = [], []
@@ -513,7 +513,6 @@ class model():
 
         test_samples, test_labels, sample_infs = self.get_samples_with_inf(corpus_path)
 
-
         with self.graph.as_default():
 
             saver = tf.train.Saver()
@@ -587,15 +586,31 @@ class model():
 
     def compute_f1_score(self, prediction, test_label):
 
-        tp = sum([1 for token in test_label if token in prediction])
 
-        if tp == 0: return 0
+        pred_copy = prediction.copy()
+        tp = 0
+
+        for subtoken in set(test_label):
+            if subtoken in pred_copy:
+                tp += 1
+                pred_copy.remove(subtoken)
 
 
-        pr = tp / len(prediction)
-        rec = tp / len(test_label)
+        if len(prediction) > 0:
+            pr = tp / len(prediction)
+        else:
+            pr = 0
 
-        f1 = 2 * pr * rec / (pr + rec)
+        if len(test_label) > 0:
+            rec = tp / len(test_label)
+        else:
+            rec = 0
+
+
+        if (pr + rec) > 0:
+            f1 = 2 * pr * rec / (pr + rec)
+        else:
+            f1 = 0
 
         return f1
 
@@ -615,9 +630,8 @@ class model():
             print("")
             print("")
 
-            if len(predictions[i]) > 0:
-                n_nonzero += 1
-                f1 += self.compute_f1_score(predictions[i], test_labels[i])
+
+            f1 += self.compute_f1_score(predictions[i], test_labels[i])
 
             if predictions[i] == test_labels[i]:
                 n_correct += 1
@@ -629,7 +643,7 @@ class model():
 
         accuracy = n_correct / len(test_labels) * 100
 
-        f1 /= n_nonzero
+        f1 /= len(predictions)
 
         return accuracy, f1
 
