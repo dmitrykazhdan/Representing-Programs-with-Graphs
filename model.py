@@ -302,7 +302,7 @@ class model():
             g.ParseFromString(f.read())
 
             timesteps = 8
-            graph_samples, sym_var_nodes = graph_preprocessing.get_method_bodies(g, timesteps, self.max_slots,
+            graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_slots,
                                                                                   self.max_node_seq_len, self.pad_token_id, self.slot_id, self.vocabulary, True)
 
             samples, labels = [], []
@@ -472,14 +472,14 @@ class model():
 
 
 
-    def train(self, corpus_path, n_epochs):
+    def train(self, train_path, val_path, n_epochs):
 
-        train_samples, train_labels = self.get_samples(corpus_path)
+        train_samples, train_labels = self.get_samples(train_path)
+        val_samples, val_labels, sample_infs = self.get_samples_with_inf(val_path)
 
         print("Extracted samples... ", len(train_samples))
 
         losses = []
-
 
         with self.graph.as_default():
 
@@ -498,10 +498,33 @@ class model():
 
 
                 # Save model every 20 epochs:
-                if epoch % 20 == 0:
+                if (epoch+1) % 10 == 0:
+
                     saver = tf.train.Saver()
                     saver.save(self.sess, self.checkpoint_path)
 
+
+                    predicted_names = []
+
+                    for graph in val_samples:
+
+                        predictions = self.sess.run([self.predictions], feed_dict=graph)[0]
+
+                        for i in range(len(predictions)):
+
+                            predicted_name = [self.vocabulary.get_name_for_id(token_id) for token_id in predictions[i]]
+
+                            if self.vocabulary.get_pad() in predicted_name:
+                                pad_index = predicted_name.index(self.vocabulary.get_pad())
+                                predicted_name = predicted_name[:pad_index]
+
+                            predicted_names.append(predicted_name)
+
+
+                    accuracy, f1 = self.process_predictions(predicted_names, val_labels, sample_infs)
+
+                    print("Validation accuracy: ", accuracy)
+                    print("Validation F1: ", f1)
 
             saver = tf.train.Saver()
             saver.save(self.sess, self.checkpoint_path)
@@ -541,7 +564,7 @@ class model():
                     sample_infs[offset].true_label = test_labels[offset]
                     offset += 1
 
-            accuracy, f1 = self.process_predictions(predicted_names, test_labels, sample_infs)
+            accuracy, f1 = self.process_predictions(predicted_names, test_labels, sample_infs, True)
 
             print("Absolute accuracy: ", accuracy)
             print("F1 score: ", f1)
@@ -616,7 +639,7 @@ class model():
 
 
 
-    def process_predictions(self, predictions, test_labels, sample_infs):
+    def process_predictions(self, predictions, test_labels, sample_infs, print_labels=False):
 
         n_correct, n_nonzero, f1 = 0, 0, 0
 
@@ -625,10 +648,11 @@ class model():
 
         for i in range(len(predictions)):
 
-            print("Predicted: ", predictions[i])
-            print("Actual: ", test_labels[i])
-            print("")
-            print("")
+            if print_labels:
+                print("Predicted: ", predictions[i])
+                print("Actual: ", test_labels[i])
+                print("")
+                print("")
 
 
             f1 += self.compute_f1_score(predictions[i], test_labels[i])

@@ -12,6 +12,7 @@ def get_train_and_test():
 
     corpus_path = cfg['corpus_path']
     train_path  = cfg['train_path']
+    val_path    = cfg['val_path']
     test_path   = cfg['test_path']
 
     f_names = []
@@ -37,17 +38,22 @@ def get_train_and_test():
 
     # Copy subset of samples into training/testing directories
     n_samples = len(f_names)
-    n_train = round(n_samples * 0.85)
+    n_train_and_val = round(n_samples * 0.80)
+    n_train = round(n_train_and_val * 0.85)
     shuffle(f_names)
 
     train_samples = f_names[:n_train]
-    test_samples = f_names[n_train:n_samples]
+    val_samples = f_names[n_train:n_train_and_val]
+    test_samples = f_names[n_train_and_val:n_samples]
 
 
     for src in train_samples:
         dst = os.path.join(train_path, os.path.basename(src))
         copyfile(src, dst)
 
+    for src in val_samples:
+        dst = os.path.join(val_path, os.path.basename(src))
+        copyfile(src, dst)
 
     for src in test_samples:
         dst = os.path.join(test_path, os.path.basename(src))
