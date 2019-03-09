@@ -10,7 +10,9 @@ def get_used_edges_type():
     used_edge_types = [FeatureEdge.NEXT_TOKEN, FeatureEdge.AST_CHILD, FeatureEdge.LAST_WRITE,
                        FeatureEdge.LAST_USE, FeatureEdge.COMPUTED_FROM, FeatureEdge.RETURNS_TO,
                        FeatureEdge.FORMAL_ARG_NAME, FeatureEdge.GUARDED_BY, FeatureEdge.GUARDED_BY_NEGATION,
-                       FeatureEdge.LAST_LEXICAL_USE,
+                       FeatureEdge.LAST_LEXICAL_USE
+
+        ,
                        FeatureEdge.ASSIGNABLE_TO, FeatureEdge.ASSOCIATED_TOKEN,
                        FeatureEdge.HAS_TYPE, FeatureEdge.ASSOCIATED_SYMBOL]
 
@@ -21,8 +23,9 @@ def get_used_edges_type():
 def get_used_nodes_type():
 
     used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN,
-                       FeatureNode.COMMENT_LINE,
-                       FeatureNode.FAKE_AST, FeatureNode.SYMBOL_TYP,
+                       FeatureNode.FAKE_AST
+
+                   ,    FeatureNode.SYMBOL_TYP, FeatureNode.COMMENT_LINE,
                        FeatureNode.TYPE]
 
     return used_node_types
@@ -230,25 +233,36 @@ def get_method_bodies(graph, timesteps, var_seq_length, node_seq_length, pad_tok
                               for node_id in successor_table[sym_mth_parent]
                               if node_table[node_id].type == FeatureNode.IDENTIFIER_TOKEN]
 
+        else:
+            continue
 
         method_name += usage_node_ids
 
+
+
         reachable_node_ids = [ast_elem_node_id]
-        changed = True
+        successor_ids = list(set([elem for elem in successor_table[ast_elem_node_id]]))
 
-        while changed:
-
-            changed = False
-            old_size = len(reachable_node_ids)
-
-            successor_ids = list(set([elem for n_id in reachable_node_ids for elem in successor_table[n_id]
-                                      if node_table[n_id].type != FeatureNode.IDENTIFIER_TOKEN and
-                                      node_table[n_id].type != FeatureNode.TOKEN]))
+        while len(successor_ids) != 0:
 
             reachable_node_ids += successor_ids
-            reachable_node_ids = list(set(reachable_node_ids))
 
-            if old_size != len(reachable_node_ids): changed = True
+            new_successors = []
+
+            for n_id in successor_ids:
+
+                if node_table[n_id].type != FeatureNode.IDENTIFIER_TOKEN and node_table[n_id].type != FeatureNode.TOKEN:
+
+                    for elem in successor_table[n_id]:
+
+                        if elem not in reachable_node_ids:
+                            new_successors.append(elem)
+
+
+            successor_ids = list(set(new_successors))
+
+
+        reachable_node_ids = list(set(reachable_node_ids))
 
 
         mth_ids = list(set(reachable_node_ids).intersection(set(method_name)))
