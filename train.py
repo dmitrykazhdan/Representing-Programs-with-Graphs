@@ -18,7 +18,7 @@ def train():
   print("Constructed vocabulary...")
 
   m = model(mode='train', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
-  n_train_epochs = 150
+  n_train_epochs = 80
   m.train(train_path, val_path, n_train_epochs)
   print("Model trained successfully...")
 
