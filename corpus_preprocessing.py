@@ -17,7 +17,7 @@ def get_train_and_test():
 
     f_names = []
     ignore = ("Test.java.proto", "TestCase.java.proto", "Tests.java.proto") # Ignore test cases
-    max_size_mb = 5          # maximum file size in MB
+    max_size_mb = 100          # maximum file size in MB
     min_size_mb = 0.05
 
 
@@ -30,7 +30,7 @@ def get_train_and_test():
 
                 f_size = os.path.getsize(fname) / 1000000
 
-                if f_size < max_size_mb and f_names > min_size_mb:
+                if f_size < max_size_mb and f_size > min_size_mb:
                     fname = os.path.join(dirpath, filename)
                     f_names.append(fname)
 
@@ -38,7 +38,7 @@ def get_train_and_test():
 
     # Copy subset of samples into training/testing directories
     n_samples = len(f_names)
-    n_train_and_val = round(n_samples * 0.80)
+    n_train_and_val = round(n_samples * 0.85)
     n_train = round(n_train_and_val * 0.85)
     shuffle(f_names)
 
