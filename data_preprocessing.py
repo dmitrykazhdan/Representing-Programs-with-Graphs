@@ -17,6 +17,7 @@ class SampleMetaInformation():
         self.usage_rep = None
         self.true_label = None
         self.predicted_label = None
+        self.seen_in_training = None
 
 
     def compute_var_type(self):
@@ -42,6 +43,7 @@ class SampleMetaInformation():
         if self.usages != None: return self.usages
 
         with open(self.fname, "rb") as f:
+
             g = Graph()
             g.ParseFromString(f.read())
 
@@ -90,16 +92,17 @@ class CorpusMetaInformation():
 
         for sample_inf in self.sample_meta_inf:
 
-            #print("filename: ", sample_inf.fname)
-            sample_inf.compute_var_usages()
-            sample_inf.compute_var_type()
+            if sample_inf.seen_in_training:
+                #print("filename: ", sample_inf.fname)
+                sample_inf.compute_var_usages()
+                sample_inf.compute_var_type()
 
-            if sample_inf.predicted_correctly:
-                corr_usage_classes[sample_inf.usages] += 1
-                corr_type_classes[sample_inf.type] += 1
-            else:
-                incorr_usage_classes[sample_inf.usages] += 1
-                incorr_type_classes[sample_inf.type] += 1
+                if sample_inf.predicted_correctly:
+                    corr_usage_classes[sample_inf.usages] += 1
+                    corr_type_classes[sample_inf.type] += 1
+                else:
+                    incorr_usage_classes[sample_inf.usages] += 1
+                    incorr_type_classes[sample_inf.type] += 1
 
 
 
@@ -107,7 +110,7 @@ class CorpusMetaInformation():
             #print("Type: ", sample_inf.type)
 
 
-        for i in range(64):
+        for i in range(128):
 
             if incorr_usage_classes[i] != 0 or  corr_usage_classes[i] != 0:
                 print(str(i) + " usages: ", incorr_usage_classes[i], " (incorrect)      ", corr_usage_classes[i], " (correct)")
@@ -149,6 +152,8 @@ def compute_id_dict(graph):
 
 
 def get_var_type(graph, sym_var_node_id):
+
+    return 0
 
     id_dict = compute_id_dict(graph)
     successors, predecessors = compute_successors_and_predecessors(graph)

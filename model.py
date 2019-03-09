@@ -18,7 +18,7 @@ class model():
         self.max_node_seq_len = 32                          # Maximum number of node subtokens
         self.max_var_seq_len = 16                           # Maximum number of variable subtokens
         self.max_slots = 64                                 # Maximum number of variable occurrences
-        self.batch_size = 8000                              # Number of nodes per batch sample
+        self.batch_size = 20000                              # Number of nodes per batch sample
         self.enable_batching = True
         self.learning_rate = 0.001
         self.ggnn_params = self.get_gnn_params()
@@ -201,17 +201,30 @@ class model():
 
     def make_train_step(self):
 
-        self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'], logits=self.decoder_logits_train)
-        self.train_loss = tf.reduce_sum(self.crossent * self.placeholders['target_mask']) / self.placeholders['num_samples_in_batch']
+        max_batch_seq_len = tf.reduce_max(self.placeholders['decoder_targets_length'])
+
+        self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.placeholders['decoder_targets'][:, :max_batch_seq_len],
+                                                                       logits=self.decoder_logits_train)
+
+        self.train_loss = tf.reduce_sum(self.crossent * self.placeholders['target_mask'][:, :max_batch_seq_len]) / self.placeholders['num_samples_in_batch']
 
         # Calculate and clip gradients
         self.train_vars = tf.trainable_variables()
-        self.gradients = tf.gradients(self.train_loss, self.train_vars)
-        self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, 5.0)
-
-        # Optimization
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-        self.train_step = self.optimizer.apply_gradients(zip(self.clipped_gradients, self.train_vars))
+
+
+        grads_and_vars = self.optimizer.compute_gradients(self.train_loss, var_list=self.train_vars)
+
+        clipped_grads = []
+
+        for grad, var in grads_and_vars:
+            if grad is not None:
+                clipped_grads.append((tf.clip_by_norm(grad, 5.0), var))
+            else:
+                clipped_grads.append((grad, var))
+
+        self.train_step = self.optimizer.apply_gradients(clipped_grads)
+
 
 
 
@@ -275,7 +288,7 @@ class model():
             self.placeholders['num_outgoing_edges_per_type']: outgoing_edges,
             self.placeholders['decoder_targets']: decoder_targets,
             self.placeholders['decoder_inputs']: decoder_inputs,
-            self.placeholders['decoder_targets_length']: np.ones((1)) * self.max_var_seq_len,
+            self.placeholders['decoder_targets_length']: np.ones((1)) * np.sum(target_mask),
             self.placeholders['sos_tokens']: start_tokens,
             self.placeholders['target_mask']: target_mask,
             self.placeholders['num_samples_in_batch']: np.ones((1))
@@ -303,7 +316,7 @@ class model():
 
             timesteps = 8
             graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_slots,
-                                                                                  self.max_node_seq_len, self.pad_token_id, self.slot_id, self.vocabulary, True)
+                                                                                  self.max_node_seq_len, self.pad_token_id, self.slot_id, self.vocabulary)
 
             samples, labels = [], []
 
@@ -498,7 +511,7 @@ class model():
 
 
                 # Save model every 20 epochs:
-                if (epoch+1) % 10 == 0:
+                if (epoch+1) % 5 == 0:
 
                     saver = tf.train.Saver()
                     saver.save(self.sess, self.checkpoint_path)
@@ -570,23 +583,29 @@ class model():
             print("F1 score: ", f1)
 
 
-            meta_corpus = CorpusMetaInformation(sample_infs)
+            #meta_corpus = CorpusMetaInformation(sample_infs)
             #meta_corpus.process_sample_inf()
             #meta_corpus.compute_usage_clusters()
 
 
-        return test_samples, test_labels, sample_infs
+        return test_samples, test_labels, sample_infs, predicted_names
 
 
 
     def compare_labels(self, train_path, test_path):
 
         train_samples, train_labels = self.get_samples(train_path)
-        test_samples, test_labels, sample_infs = self.infer(test_path)
+        test_samples, test_labels, sample_infs, predicted_names = self.infer(test_path)
 
         seen_correct, seen_incorrect, unseen_correct, unseen_incorrect = 0, 0, 0, 0
 
         for i, sample_inf in enumerate(sample_infs):
+
+            if test_labels[i] in train_labels:
+                sample_inf.seen_in_training = True
+            else:
+                sample_inf.seen_in_training = False
+
 
             if test_labels[i] in train_labels and sample_inf.predicted_correctly:
                 seen_correct += 1
@@ -604,6 +623,24 @@ class model():
         print("Unseen, predicted incorrectly: ", unseen_incorrect)
 
 
+        seen_predictions = [predicted_names[i] for i in range(len(predicted_names))
+                            if sample_infs[i].seen_in_training ]
+
+        seen_test_labels = [test_labels[i] for i in range(len(test_labels))
+                            if sample_infs[i].seen_in_training ]
+
+
+        seen_sample_infs = [sample_infs[i] for i in range(len(sample_infs))
+                            if sample_infs[i].seen_in_training ]
+
+
+        accuracy, f1 = self.process_predictions(seen_predictions, seen_test_labels, seen_sample_infs)
+
+        print("Seen Absolute accuracy: ", accuracy)
+        print("Seen F1 score: ", f1)
+
+        meta_corpus = CorpusMetaInformation(sample_infs)
+        meta_corpus.process_sample_inf()
 
 
 
@@ -649,8 +686,9 @@ class model():
         for i in range(len(predictions)):
 
             if print_labels:
-                print("Predicted: ", predictions[i])
-                print("Actual: ", test_labels[i])
+
+                print("Predicted: ", [sym.encode('utf-8') for sym in predictions[i]])
+                print("Actual: ", [sym.encode('utf-8') for sym in test_labels[i]])
                 print("")
                 print("")
 
