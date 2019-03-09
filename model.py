@@ -591,10 +591,10 @@ class model():
 
 
 
-    def compare_labels(self, train_path, test_path):
+    def compare_labels(self, train_path, test_path, checkpoint_path):
 
         train_samples, train_labels = self.get_samples(train_path)
-        test_samples, test_labels, sample_infs, predicted_names = self.infer(test_path)
+        test_samples, test_labels, sample_infs, predicted_names = self.infer(test_path, checkpoint_path)
 
         seen_correct, seen_incorrect, unseen_correct, unseen_incorrect = 0, 0, 0, 0
 
