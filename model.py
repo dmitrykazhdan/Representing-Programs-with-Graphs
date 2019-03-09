@@ -11,14 +11,13 @@ from random import shuffle
 
 class model():
 
-    def __init__(self, mode, vocabulary, checkpoint_path):
+    def __init__(self, mode, vocabulary):
 
         # Initialize parameter values
-        self.checkpoint_path = checkpoint_path
         self.max_node_seq_len = 32                          # Maximum number of node subtokens
         self.max_var_seq_len = 16                           # Maximum number of variable subtokens
         self.max_slots = 64                                 # Maximum number of variable occurrences
-        self.batch_size = 20000                              # Number of nodes per batch sample
+        self.batch_size = 20000                             # Number of nodes per batch sample
         self.enable_batching = True
         self.learning_rate = 0.001
         self.ggnn_params = self.get_gnn_params()
@@ -316,7 +315,7 @@ class model():
 
             timesteps = 8
             graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_slots,
-                                                                                  self.max_node_seq_len, self.pad_token_id, self.slot_id, self.vocabulary)
+                                                                                  self.max_node_seq_len, self.pad_token_id, self.slot_id, self.vocabulary, True)
 
             samples, labels = [], []
 
@@ -485,7 +484,7 @@ class model():
 
 
 
-    def train(self, train_path, val_path, n_epochs):
+    def train(self, train_path, val_path, n_epochs, checkpoint_path):
 
         train_samples, train_labels = self.get_samples(train_path)
         val_samples, val_labels, sample_infs = self.get_samples_with_inf(val_path)
@@ -514,7 +513,7 @@ class model():
                 if (epoch+1) % 5 == 0:
 
                     saver = tf.train.Saver()
-                    saver.save(self.sess, self.checkpoint_path)
+                    saver.save(self.sess, checkpoint_path)
 
 
                     predicted_names = []
@@ -540,19 +539,19 @@ class model():
                     print("Validation F1: ", f1)
 
             saver = tf.train.Saver()
-            saver.save(self.sess, self.checkpoint_path)
+            saver.save(self.sess, checkpoint_path)
 
 
 
 
-    def infer(self, corpus_path):
+    def infer(self, corpus_path, checkpoint_path):
 
         test_samples, test_labels, sample_infs = self.get_samples_with_inf(corpus_path)
 
         with self.graph.as_default():
 
             saver = tf.train.Saver()
-            saver.restore(self.sess, self.checkpoint_path)
+            saver.restore(self.sess, checkpoint_path)
             print("Model loaded successfully...")
 
             predicted_names = []

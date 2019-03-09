@@ -13,8 +13,8 @@ def infer():
 
   # Run inference
   vocabulary = vocabulary_extractor.load_vocabulary(token_path)
-  m = model(mode='infer', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
-  m.infer(test_path)
+  m = model(mode='infer', vocabulary=vocabulary)
+  m.infer(test_path, checkpoint_path=checkpoint_path)
 
   print("Inference ran successfully...")
 

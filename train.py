@@ -9,7 +9,7 @@ def train():
 
   checkpoint_path = cfg['checkpoint_path']
   train_path = cfg['train_path']
-  val_path   = cfg['val_path']
+  val_path   = cfg['test_path']
   token_path = cfg['token_path']
 
 
@@ -17,9 +17,9 @@ def train():
   vocabulary = vocabulary_extractor.create_vocabulary_from_corpus(train_path, token_path)
   print("Constructed vocabulary...")
 
-  m = model(mode='train', vocabulary=vocabulary, checkpoint_path=checkpoint_path)
-  n_train_epochs = 80
-  m.train(train_path, val_path, n_train_epochs)
+  m = model(mode='train', vocabulary=vocabulary)
+  n_train_epochs = 40
+  m.train(train_path, val_path, n_train_epochs, checkpoint_path=checkpoint_path)
   print("Model trained successfully...")
 
 train()
