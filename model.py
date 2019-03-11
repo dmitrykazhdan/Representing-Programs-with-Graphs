@@ -315,7 +315,7 @@ class model():
 
             timesteps = 8
             graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_slots,
-                                                                                  self.max_node_seq_len, self.pad_token_id, self.slot_id, self.vocabulary, True)
+                                                                                  self.max_node_seq_len, self.pad_token_id, self.slot_id, self.vocabulary)
 
             samples, labels = [], []
 

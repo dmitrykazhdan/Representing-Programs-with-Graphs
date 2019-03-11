@@ -12,7 +12,7 @@ class SampleMetaInformation():
         self.fname = sample_fname
         self.node_id = node_id
         self.predicted_correctly = None
-        self.type = None
+        self.type = "empty_type"
         self.usages = None
         self.usage_rep = None
         self.true_label = None
@@ -22,7 +22,7 @@ class SampleMetaInformation():
 
     def compute_var_type(self):
 
-        if self.type != None: return self.type
+        if self.type != "empty_type": return self.type
 
 
         with open(self.fname, "rb") as f:
@@ -39,6 +39,8 @@ class SampleMetaInformation():
 
 
     def compute_var_usages(self):
+
+        return None
 
         if self.usages != None: return self.usages
 
@@ -110,15 +112,20 @@ class CorpusMetaInformation():
             #print("Type: ", sample_inf.type)
 
 
-        for i in range(128):
+        # for i in range(-5, 128, 1):
+        #
+        #     if incorr_usage_classes[i] != 0 or  corr_usage_classes[i] != 0:
+        #         print(str(i) + " usages: ", incorr_usage_classes[i], " (incorrect)      ", corr_usage_classes[i], " (correct)")
+        #         print("")
 
-            if incorr_usage_classes[i] != 0 or  corr_usage_classes[i] != 0:
-                print(str(i) + " usages: ", incorr_usage_classes[i], " (incorrect)      ", corr_usage_classes[i], " (correct)")
+
+
+        for key in list(set(incorr_type_classes.keys()).union(corr_type_classes.keys())):
+
+            if incorr_type_classes[key] != 0 or corr_type_classes[key] != 0:
+                print(str(key), incorr_type_classes[key], " (incorrect)      ", corr_type_classes[key], " (correct)")
                 print("")
 
-            # print("types: ")
-            # print(incorr_type_classes[i], corr_type_classes[i])
-            # print("")
 
 
 
@@ -153,8 +160,6 @@ def compute_id_dict(graph):
 
 def get_var_type(graph, sym_var_node_id):
 
-    return 0
-
     id_dict = compute_id_dict(graph)
     successors, predecessors = compute_successors_and_predecessors(graph)
 
@@ -162,14 +167,8 @@ def get_var_type(graph, sym_var_node_id):
 
     ast_parent = -1
 
-    #print("var: ", id_dict[sym_var_node_id].contents)
-
     for id_token_node in id_token_nodes:
         for parent_id in predecessors[id_token_node]:
-
-            # print("-----")
-            # print(id_dict[parent_id].contents)
-            # print("-----")
 
             if id_dict[parent_id].type == FeatureNode.AST_ELEMENT and id_dict[parent_id].contents == "VARIABLE":
                 ast_parent = parent_id
@@ -179,25 +178,37 @@ def get_var_type(graph, sym_var_node_id):
 
 
     if ast_parent == -1:
-        return -1
-        #raise ValueError('AST_ELEMENT VARIABLE node not found...')
+        return "empty_type"
 
 
     fake_ast_type = [n for n in successors[ast_parent]
                      if id_dict[n].type == FeatureNode.FAKE_AST and id_dict[n].contents == "TYPE"]
 
-    if len(fake_ast_type) == 0: return -1
-    else: fake_ast_type = fake_ast_type[0]
+    if len(fake_ast_type) == 0:
+        return "empty_type"
+
+    else:
+        fake_ast_type = fake_ast_type[0]
+
 
     fake_ast_type_succ = list(successors[fake_ast_type])
 
-    if len(fake_ast_type_succ) == 0: return -1
-    else: fake_ast_type_succ = fake_ast_type_succ[0]
+    if len(fake_ast_type_succ) == 0:
+        return "empty_type"
+
+    else:
+        fake_ast_type_succ = fake_ast_type_succ[0]
+
 
     type = [id_dict[n].contents for n in successors[fake_ast_type_succ] if id_dict[n].type == FeatureNode.TYPE]
 
-    if len(type) == 0: return -1
-    else: type = type[0]
+    if len(type) == 0:
+        return "empty_type"
+
+    else:
+        type = type[0]
+
+    print("type: ", type)
 
     return type
 

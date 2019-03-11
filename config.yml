@@ -11,7 +11,7 @@ token_path: "/Users/AdminDK/Desktop/tokens.txt"
 
 
 # GPU paths:
-#corpus_path: "/home/dk525/r252-corpus-features"
+#corpus_path: "/home/dk525/new_corpus"
 #checkpoint_path: "/home/dk525/checkpoint/train.ckpt"
 #train_path: "/home/dk525/train_graphs"
 #val_path: "/home/dk525/val_graphs"
