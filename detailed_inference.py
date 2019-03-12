@@ -2,7 +2,7 @@ import vocabulary_extractor
 from model import model
 import yaml
 
-def postprocess():
+def detailed_inference():
 
   with open("config.yml", 'r') as ymlfile:
     cfg = yaml.load(ymlfile)
@@ -15,10 +15,10 @@ def postprocess():
   # Run inference
   vocabulary = vocabulary_extractor.load_vocabulary(token_path)
   m = model(mode='infer', vocabulary=vocabulary)
-  m.compare_labels(train_path, test_path, checkpoint_path=checkpoint_path)
+  m.metrics_on_seen_vars(train_path, test_path, checkpoint_path=checkpoint_path)
 
   print("Inference ran successfully...")
 
 
-postprocess()
+detailed_inference()
 

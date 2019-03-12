@@ -1,11 +1,12 @@
 import tensorflow as tf
 from graph_pb2 import Graph
 from dpu_utils.tfmodels import SparseGGNN
-from data_preprocessing import SampleMetaInformation, CorpusMetaInformation
+from sample_inf_processing import SampleMetaInformation, CorpusMetaInformation
 import numpy as np
 import os
 import graph_preprocessing
 from random import shuffle
+from utils import compute_f1_score
 
 
 
@@ -22,9 +23,9 @@ class model():
         self.learning_rate = 0.001
         self.ggnn_params = self.get_gnn_params()
         self.vocabulary = vocabulary
-        self.voc_size = len(vocabulary)
-        self.slot_id = self.vocabulary.get_id_or_unk('<SLOT>')
-        self.sos_token_id = self.vocabulary.get_id_or_unk('sos_token')
+        self.slot_id = len(vocabulary)
+        self.sos_token_id = len(vocabulary) + 1
+        self.voc_size = len(vocabulary) + 2
         self.pad_token_id = self.vocabulary.get_id_or_unk(self.vocabulary.get_pad())
         self.embedding_size = self.ggnn_params['hidden_size']
         self.ggnn_dropout = 1.0
@@ -33,7 +34,6 @@ class model():
             raise ValueError("Invalid mode. Please specify \'train\' or \'infer\'...")
 
 
-        # Create model
         self.graph = tf.Graph()
         self.mode = mode
 
@@ -49,6 +49,7 @@ class model():
 
 
         print ("Model built successfully...")
+
 
 
 
@@ -75,19 +76,16 @@ class model():
     def make_inputs(self):
 
         # Node token sequences
-        self.placeholders['unique_node_labels'] = tf.placeholder(name='unique_labels',shape=[None, self.max_node_seq_len], dtype=tf.int32 )
+        self.placeholders['unique_node_labels'] = tf.placeholder(name='unique_labels', shape=[None, self.max_node_seq_len], dtype=tf.int32 )
         self.placeholders['unique_node_labels_mask'] = tf.placeholder(name='unique_node_labels_mask', shape=[None, self.max_node_seq_len], dtype=tf.float32)
         self.placeholders['node_label_indices'] = tf.placeholder(name='node_label_indices', shape=[None], dtype=tf.int32)
 
-
-        # Graph adjacency lists
+        # Graph edge matrices
         self.placeholders['adjacency_lists'] = [tf.placeholder(tf.int32, [None, 2]) for _ in range(self.ggnn_params['n_edge_types'])]
-
-        # Graph of incoming/outgoing edges per type
         self.placeholders['num_incoming_edges_per_type'] = tf.placeholder(tf.float32, [None, self.ggnn_params['n_edge_types']])
         self.placeholders['num_outgoing_edges_per_type'] = tf.placeholder(tf.float32, [None, self.ggnn_params['n_edge_types']])
 
-        # Actual variable name, as a padded sequence of tokens
+        # Decoder sequence placeholders
         self.placeholders['decoder_targets'] = tf.placeholder(dtype=tf.int32, shape=(None, self.max_var_seq_len), name='dec_targets')
         self.placeholders['decoder_inputs'] = tf.placeholder(shape=(self.max_var_seq_len, self.placeholders['decoder_targets'].shape[0]), dtype=tf.int32, name='dec_inputs')
         self.placeholders['target_mask'] = tf.placeholder(tf.float32, [self.placeholders['decoder_targets'].shape[0], self.max_var_seq_len], name='target_mask')
@@ -98,11 +96,12 @@ class model():
         self.placeholders['slot_ids'] = tf.placeholder(tf.int32, [self.placeholders['decoder_targets'].shape[0], self.max_slots], name='slot_ids')
         self.placeholders['slot_ids_mask'] = tf.placeholder(tf.float32, [self.placeholders['decoder_targets'].shape[0], self.max_slots], name='slot_mask')
 
-
+        # Record number of graph samples in given batch (used during loss computation)
         self.placeholders['num_samples_in_batch'] = tf.placeholder(dtype=tf.float32, shape=(1), name='num_samples_in_batch')
 
 
-    def make_initial_node_representation(self):
+
+    def get_initial_node_representation(self):
 
         # Compute the embedding of input node sub-tokens
         self.embedding_encoder = tf.get_variable('embedding_encoder', [self.voc_size, self.embedding_size])
@@ -127,8 +126,9 @@ class model():
 
     def make_model(self):
 
+        # Create inputs and compute initial node representations
         self.make_inputs()
-        self.make_initial_node_representation()
+        self.get_initial_node_representation()
 
         # Run graph through GGNN layer
         self.gnn_model = SparseGGNN(self.ggnn_params)
@@ -160,7 +160,6 @@ class model():
         # Training
         decoder_embedding_inputs = tf.nn.embedding_lookup(self.embedding_decoder, self.placeholders['decoder_inputs'])
 
-        # Define training sequence decoder
         self.train_helper = tf.contrib.seq2seq.TrainingHelper(decoder_embedding_inputs,
                                         self.placeholders['decoder_targets_length'],
                                         time_major=True)
@@ -174,16 +173,13 @@ class model():
         self.decoder_logits_train = decoder_outputs_train.rnn_output
 
 
-
-
-
-
         # Inference
         end_token = self.pad_token_id
         max_iterations = self.max_var_seq_len
 
         self.inference_helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.embedding_decoder,
-                                                          start_tokens=self.placeholders['sos_tokens'], end_token=end_token)
+                                                                         start_tokens=self.placeholders['sos_tokens'],
+                                                                         end_token=end_token)
 
 
         self.inference_decoder = tf.contrib.seq2seq.BasicDecoder(self.decoder_cell, self.inference_helper,
@@ -191,7 +187,7 @@ class model():
                                                                  output_layer=self.projection_layer)
 
         outputs_inference, _, _ = tf.contrib.seq2seq.dynamic_decode(self.inference_decoder,
-                                                                        maximum_iterations=max_iterations)
+                                                                    maximum_iterations=max_iterations)
 
         self.predictions = outputs_inference.sample_id
 
@@ -228,46 +224,45 @@ class model():
 
 
 
-
-    def create_sample(self, var_node_row_ids, node_representation, adj_lists, incoming_edges, outgoing_edges):
+    # Set placeholder values using given graph input
+    def create_sample(self, slot_row_id_list, node_representation, adj_lists, incoming_edges, outgoing_edges):
 
         # Retrieve variable token sequence
-        var_token_seq = node_representation[var_node_row_ids[0]][:self.max_var_seq_len]
+        target_token_seq = node_representation[slot_row_id_list[0]][:self.max_var_seq_len]
 
         # Set all occurrences of variable to <SLOT>
         slotted_node_representation = node_representation.copy()
-        slotted_node_representation[var_node_row_ids, :] = self.pad_token_id
-        slotted_node_representation[var_node_row_ids, 0] = self.slot_id
+        slotted_node_representation[slot_row_id_list, :] = self.pad_token_id
+        slotted_node_representation[slot_row_id_list, 0] = self.slot_id
 
         node_rep_mask = (slotted_node_representation != self.pad_token_id).astype(int)
 
         slot_row_ids = np.zeros((1, self.max_slots))
         slot_mask = np.zeros((1, self.max_slots))
-        slot_row_ids[0, 0:len(var_node_row_ids)] = var_node_row_ids
-        slot_mask[0, 0:len(var_node_row_ids)] = 1
+        slot_row_ids[0, 0:len(slot_row_id_list)] = slot_row_id_list
+        slot_mask[0, 0:len(slot_row_id_list)] = 1
 
         decoder_inputs = np.zeros((self.max_var_seq_len, 1))
         decoder_targets = np.zeros((1, self.max_var_seq_len))
         target_mask = np.zeros((1, self.max_var_seq_len))
-
         start_tokens = np.ones((1)) * self.sos_token_id
 
         if self.mode == 'train':
 
             # Set decoder inputs and targets
-            decoder_inputs = var_token_seq.copy()
+            decoder_inputs = target_token_seq.copy()
             decoder_inputs = np.insert(decoder_inputs, 0, self.sos_token_id)[:-1]
             decoder_inputs = decoder_inputs.reshape(self.max_var_seq_len, 1)
 
-            decoder_targets = var_token_seq.copy()
+            decoder_targets = target_token_seq.copy()
             decoder_targets = decoder_targets.reshape(1, self.max_var_seq_len)
 
-            non_pads = np.sum(decoder_targets != self.pad_token_id) + 1
-            target_mask[0, 0:non_pads] = 1
+            num_non_pads = np.sum(decoder_targets != self.pad_token_id) + 1
+            target_mask[0, 0:num_non_pads] = 1
 
 
 
-        # If batching is enabled, delay creation of the vocabulary until batch creation
+        # If batching is enabled, delay creation of the node representations until batch creation
         if self.enable_batching:
             unique_label_subtokens, unique_label_indices = None, None
             unique_label_inverse_indices = slotted_node_representation
@@ -296,16 +291,13 @@ class model():
         for i in range(self.ggnn_params['n_edge_types']):
             graph_sample[self.placeholders['adjacency_lists'][i]] = adj_lists[i]
 
-        # Obtain variable name
-        var_name = [self.vocabulary.get_name_for_id(token_id)
-                    for token_id in var_token_seq if token_id != self.pad_token_id]
+        target_name = [self.vocabulary.get_name_for_id(token_id)
+                    for token_id in target_token_seq if token_id != self.pad_token_id]
 
-        return graph_sample, var_name
-
+        return graph_sample, target_name
 
 
-
-    # Generate training/test samples from a graph file
+    # Extract samples from given file
     def create_samples(self, filepath):
 
         with open(filepath, "rb") as f:
@@ -313,9 +305,10 @@ class model():
             g = Graph()
             g.ParseFromString(f.read())
 
-            timesteps = 8
-            graph_samples, sym_var_nodes = graph_preprocessing.compute_sub_graphs(g, timesteps, self.max_slots,
-                                                                                  self.max_node_seq_len, self.pad_token_id, self.slot_id, self.vocabulary)
+            max_path_len = 8
+            graph_samples, slot_node_ids = graph_preprocessing.compute_sub_graphs(g, max_path_len, self.max_slots,
+                                                                                  self.max_node_seq_len, self.pad_token_id,
+                                                                                  self.slot_id, self.vocabulary)
 
             samples, labels = [], []
 
@@ -325,14 +318,14 @@ class model():
                 labels.append(new_label)
 
 
-            sample_meta_inf = []
+            # Save sample meta-information
+            samples_meta_inf = []
 
-            for sym_var_node in sym_var_nodes:
-                new_inf = SampleMetaInformation(filepath, sym_var_node)
-                sample_meta_inf.append(new_inf)
+            for slot_node_id in slot_node_ids:
+                new_inf = SampleMetaInformation(filepath, slot_node_id)
+                samples_meta_inf.append(new_inf)
 
-
-            return samples, labels, sample_meta_inf
+            return samples, labels, samples_meta_inf
 
 
 
@@ -389,13 +382,21 @@ class model():
             num_nodes_in_graph = graph_sample[self.placeholders['node_label_indices']].shape[0]
 
             node_reps.append(graph_sample[self.placeholders['node_label_indices']])
+
             slot_ids.append(graph_sample[self.placeholders['slot_ids']] + graph_sample[self.placeholders['slot_ids_mask']] * node_offset)
+
             slot_masks.append(graph_sample[self.placeholders['slot_ids_mask']])
+
             num_incoming_edges_per_type.append(graph_sample[self.placeholders['num_incoming_edges_per_type']])
+
             num_outgoing_edges_per_type.append(graph_sample[self.placeholders['num_outgoing_edges_per_type']])
+
             decoder_inputs.append(graph_sample[self.placeholders['decoder_inputs']])
+
             decoder_targets.append(graph_sample[self.placeholders['decoder_targets']])
+
             decoder_targets_length.append(graph_sample[self.placeholders['decoder_targets_length']])
+
             decoder_masks.append(graph_sample[self.placeholders['target_mask']])
 
             for i in range(self.ggnn_params['n_edge_types']):
@@ -442,15 +443,15 @@ class model():
 
     def get_samples(self, dir_path):
 
-        graph_samples, labels, _ = self.get_samples_with_inf(dir_path)
+        graph_samples, labels, _ = self.get_samples_with_metainf(dir_path)
 
         return graph_samples, labels
 
 
 
-    def get_samples_with_inf(self, dir_path):
+    def get_samples_with_metainf(self, dir_path):
 
-        graph_samples, labels, meta_sample_inf = [], [], []
+        graph_samples, labels, metainf = [], [], []
 
         n_files = sum([1 for dirpath, dirs, files in os.walk(dir_path) for filename in files if filename.endswith('proto')])
         n_processed = 0
@@ -466,32 +467,29 @@ class model():
                     if len(new_samples) > 0:
                         graph_samples += new_samples
                         labels += new_labels
-                        meta_sample_inf += new_inf
+                        metainf += new_inf
 
                     n_processed += 1
                     print("Processed ", n_processed/n_files * 100, "% of files...")
 
 
-        zipped = list(zip(graph_samples, labels, meta_sample_inf))
+        zipped = list(zip(graph_samples, labels, metainf))
         shuffle(zipped)
-        graph_samples, labels, meta_sample_inf = zip(*zipped)
+        graph_samples, labels, metainf = zip(*zipped)
 
         if self.enable_batching:
             graph_samples, labels = self.make_batch_samples(graph_samples, labels)
 
-        return graph_samples, labels, meta_sample_inf
-
+        return graph_samples, labels, metainf
 
 
 
     def train(self, train_path, val_path, n_epochs, checkpoint_path):
 
         train_samples, train_labels = self.get_samples(train_path)
-        val_samples, val_labels, sample_infs = self.get_samples_with_inf(val_path)
+        val_samples, val_labels, meta_inf = self.get_samples_with_metainf(val_path)
 
         print("Extracted samples... ", len(train_samples))
-
-        losses = []
 
         with self.graph.as_default():
 
@@ -502,41 +500,17 @@ class model():
                 for graph in train_samples:
                     loss += self.sess.run([self.train_loss, self.train_step], feed_dict=graph)[0]
 
-                losses.append(loss)
-
                 print("Average Epoch Loss:", (loss/len(train_samples)))
                 print("Epoch: ", epoch + 1, "/", n_epochs)
                 print("---------------------------------------------")
 
 
-                # Save model every 20 epochs:
                 if (epoch+1) % 5 == 0:
 
                     saver = tf.train.Saver()
                     saver.save(self.sess, checkpoint_path)
 
-
-                    predicted_names = []
-
-                    for graph in val_samples:
-
-                        predictions = self.sess.run([self.predictions], feed_dict=graph)[0]
-
-                        for i in range(len(predictions)):
-
-                            predicted_name = [self.vocabulary.get_name_for_id(token_id) for token_id in predictions[i]]
-
-                            if self.vocabulary.get_pad() in predicted_name:
-                                pad_index = predicted_name.index(self.vocabulary.get_pad())
-                                predicted_name = predicted_name[:pad_index]
-
-                            predicted_names.append(predicted_name)
-
-
-                    accuracy, f1 = self.process_predictions(predicted_names, val_labels, sample_infs)
-
-                    print("Validation accuracy: ", accuracy)
-                    print("Validation F1: ", f1)
+                    self.compute_metrics_from_graph_samples(val_samples, val_labels, meta_inf)
 
             saver = tf.train.Saver()
             saver.save(self.sess, checkpoint_path)
@@ -544,9 +518,14 @@ class model():
 
 
 
+
+
     def infer(self, corpus_path, checkpoint_path):
 
-        test_samples, test_labels, sample_infs = self.get_samples_with_inf(corpus_path)
+        test_samples, test_labels, meta_inf = self.get_samples_with_metainf(corpus_path)
+
+        for i in range(len(test_labels)):
+            meta_inf[i].true_label = test_labels[i]
 
         with self.graph.as_default():
 
@@ -554,44 +533,85 @@ class model():
             saver.restore(self.sess, checkpoint_path)
             print("Model loaded successfully...")
 
-            predicted_names = []
+            _, _, predicted_names = self.compute_metrics_from_graph_samples(test_samples, test_labels, meta_inf)
 
-            offset = 0
-
-            for graph in test_samples:
-
-                predictions, usage_reps = self.sess.run([self.predictions, self.avg_representation], feed_dict=graph)
-
-                for i in range(len(predictions)):
-
-                    predicted_name = [self.vocabulary.get_name_for_id(token_id) for token_id in predictions[i]]
-
-                    if self.vocabulary.get_pad() in predicted_name:
-                        pad_index = predicted_name.index(self.vocabulary.get_pad())
-                        predicted_name = predicted_name[:pad_index]
-
-                    predicted_names.append(predicted_name)
-
-                    sample_infs[offset].usage_rep = usage_reps[i]
-                    sample_infs[offset].true_label = test_labels[offset]
-                    offset += 1
-
-            accuracy, f1 = self.process_predictions(predicted_names, test_labels, sample_infs, True)
-
-            print("Absolute accuracy: ", accuracy)
-            print("F1 score: ", f1)
-
-
-            #meta_corpus = CorpusMetaInformation(sample_infs)
-            #meta_corpus.process_sample_inf()
-            #meta_corpus.compute_usage_clusters()
-
-
-        return test_samples, test_labels, sample_infs, predicted_names
+        return test_samples, test_labels, meta_inf, predicted_names
 
 
 
-    def compare_labels(self, train_path, test_path, checkpoint_path):
+    def get_predictions(self, graph_samples):
+
+        predicted_names = []
+
+        for graph in graph_samples:
+
+            predictions = self.sess.run([self.predictions], feed_dict=graph)[0]
+
+            for i in range(len(predictions)):
+
+                predicted_name = [self.vocabulary.get_name_for_id(token_id) for token_id in predictions[i]]
+
+                if self.vocabulary.get_pad() in predicted_name:
+                    pad_index = predicted_name.index(self.vocabulary.get_pad())
+                    predicted_name = predicted_name[:pad_index]
+
+                predicted_names.append(predicted_name)
+
+        return predicted_names
+
+
+
+
+    def compute_metrics_from_graph_samples(self, graph_samples, test_labels, sample_infs, print_labels=False):
+
+        predicted_names = self.get_predictions(graph_samples)
+        return self.compute_metrics(predicted_names, test_labels, sample_infs, print_labels)
+
+
+
+
+    def compute_metrics(self, predicted_names, test_labels, sample_infs, print_labels=False):
+
+        n_correct, n_nonzero, f1 = 0, 0, 0
+
+        print("Predictions: ", len(predicted_names))
+        print("Test labels: ", len(test_labels))
+
+        for i in range(len(predicted_names)):
+
+            if print_labels:
+
+                print("Predicted: ", [sym.encode('utf-8') for sym in predicted_names[i]])
+                print("Actual: ", [sym.encode('utf-8') for sym in test_labels[i]])
+                print("")
+                print("")
+
+
+            f1 += compute_f1_score(predicted_names[i], test_labels[i])
+
+            if predicted_names[i] == test_labels[i]:
+                n_correct += 1
+                sample_infs[i].predicted_correctly = True
+
+            else:
+                sample_infs[i].predicted_correctly = False
+
+
+        accuracy = n_correct / len(test_labels) * 100
+
+        f1 /= len(predicted_names)
+
+        print("Absolute accuracy: ", accuracy)
+        print("F1 score: ", f1)
+
+        return accuracy, f1, predicted_names
+
+
+
+
+
+
+    def metrics_on_seen_vars(self, train_path, test_path, checkpoint_path):
 
         train_samples, train_labels = self.get_samples(train_path)
         test_samples, test_labels, sample_infs, predicted_names = self.infer(test_path, checkpoint_path)
@@ -615,13 +635,6 @@ class model():
             else:
                 unseen_incorrect += 1
 
-
-        print("Seen, correctly predicted: ", seen_correct)
-        print("Seen, incorrectly predicted: ", seen_incorrect)
-        print("Unseen, predicted correctly: ", unseen_correct)
-        print("Unseen, predicted incorrectly: ", unseen_incorrect)
-
-
         seen_predictions = [predicted_names[i] for i in range(len(predicted_names))
                             if sample_infs[i].seen_in_training ]
 
@@ -633,7 +646,7 @@ class model():
                             if sample_infs[i].seen_in_training ]
 
 
-        accuracy, f1 = self.process_predictions(seen_predictions, seen_test_labels, seen_sample_infs)
+        accuracy, f1, _ = self.compute_metrics(seen_predictions, seen_test_labels, seen_sample_infs)
 
         print("Seen Absolute accuracy: ", accuracy)
         print("Seen F1 score: ", f1)
@@ -643,70 +656,8 @@ class model():
 
 
 
-    def compute_f1_score(self, prediction, test_label):
 
 
-        pred_copy = prediction.copy()
-        tp = 0
-
-        for subtoken in set(test_label):
-            if subtoken in pred_copy:
-                tp += 1
-                pred_copy.remove(subtoken)
-
-
-        if len(prediction) > 0:
-            pr = tp / len(prediction)
-        else:
-            pr = 0
-
-        if len(test_label) > 0:
-            rec = tp / len(test_label)
-        else:
-            rec = 0
-
-
-        if (pr + rec) > 0:
-            f1 = 2 * pr * rec / (pr + rec)
-        else:
-            f1 = 0
-
-        return f1
-
-
-
-    def process_predictions(self, predictions, test_labels, sample_infs, print_labels=False):
-
-        n_correct, n_nonzero, f1 = 0, 0, 0
-
-        print("Predictions: ", len(predictions))
-        print("Test labels: ", len(test_labels))
-
-        for i in range(len(predictions)):
-
-            if print_labels:
-
-                print("Predicted: ", [sym.encode('utf-8') for sym in predictions[i]])
-                print("Actual: ", [sym.encode('utf-8') for sym in test_labels[i]])
-                print("")
-                print("")
-
-
-            f1 += self.compute_f1_score(predictions[i], test_labels[i])
-
-            if predictions[i] == test_labels[i]:
-                n_correct += 1
-                sample_infs[i].predicted_correctly = True
-
-            else:
-                sample_infs[i].predicted_correctly = False
-
-
-        accuracy = n_correct / len(test_labels) * 100
-
-        f1 /= len(predictions)
-
-        return accuracy, f1
 
 
 

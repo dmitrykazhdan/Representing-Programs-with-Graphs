@@ -32,7 +32,7 @@ def get_used_nodes_type():
 
 
 
-def compute_sub_graphs(graph, timesteps, var_seq_length, node_seq_length, pad_token, slot_token, vocabulary, method_nodes=False):
+def compute_sub_graphs(graph, max_path_len, var_seq_length, node_seq_length, pad_token, slot_token, vocabulary, get_method_data=False):
 
     successor_table = defaultdict(set)
     predecessor_table = defaultdict(set)
@@ -43,7 +43,7 @@ def compute_sub_graphs(graph, timesteps, var_seq_length, node_seq_length, pad_to
     non_empty_sym_nodes = []
 
 
-    if method_nodes:
+    if get_method_data:
         parent_usage_node_type = FeatureNode.SYMBOL_MTH
     else:
         parent_usage_node_type = FeatureNode.SYMBOL_VAR
@@ -55,8 +55,6 @@ def compute_sub_graphs(graph, timesteps, var_seq_length, node_seq_length, pad_to
 
         if node.type == parent_usage_node_type:
             sym_var_node_ids.append(node.id)
-
-
 
 
     for edge in graph.edge:
