@@ -5,7 +5,7 @@ from shutil import copyfile
 
 
 
-def get_train_and_test():
+def split_samples():
 
     with open("config.yml", 'r') as ymlfile:
         cfg = yaml.load(ymlfile)
@@ -28,37 +28,38 @@ def get_train_and_test():
 
                 fname = os.path.join(dirpath, filename)
 
-                f_size = os.path.getsize(fname) / 1000000
+                f_size_mb = os.path.getsize(fname) / 1000000
 
-                if f_size < max_size_mb and f_size > min_size_mb:
+                if f_size_mb < max_size_mb and f_size_mb > min_size_mb:
                     fname = os.path.join(dirpath, filename)
                     f_names.append(fname)
 
 
 
-    # Copy subset of samples into training/testing directories
+    # Copy subset of samples into training/validation/testing directories
     n_samples = len(f_names)
     n_train_and_val = round(n_samples * 0.85)
     n_train = round(n_train_and_val * 0.85)
+
     shuffle(f_names)
 
     train_samples = f_names[:n_train]
     val_samples = f_names[n_train:n_train_and_val]
     test_samples = f_names[n_train_and_val:n_samples]
 
+    copy_samples(train_samples, train_path)
+    copy_samples(val_samples, val_path)
+    copy_samples(test_samples, test_path)
 
-    for src in train_samples:
-        dst = os.path.join(train_path, os.path.basename(src))
+
+
+def copy_samples(sample_names, base_path):
+
+    for src in sample_names:
+        dst = os.path.join(base_path, os.path.basename(src))
         copyfile(src, dst)
 
-    for src in val_samples:
-        dst = os.path.join(val_path, os.path.basename(src))
-        copyfile(src, dst)
-
-    for src in test_samples:
-        dst = os.path.join(test_path, os.path.basename(src))
-        copyfile(src, dst)
 
 
 
-get_train_and_test()
+split_samples()

@@ -11,12 +11,13 @@ def infer():
   test_path = cfg['test_path']
   token_path = cfg['token_path']
 
-  # Run inference
+
   vocabulary = vocabulary_extractor.load_vocabulary(token_path)
   m = model(mode='infer', vocabulary=vocabulary)
-  m.infer(test_path, checkpoint_path=checkpoint_path)
 
+  m.infer(corpus_path=test_path, checkpoint_path=checkpoint_path)
   print("Inference ran successfully...")
+
 
 infer()
 
