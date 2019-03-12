@@ -306,7 +306,7 @@ class model():
             g.ParseFromString(f.read())
 
             max_path_len = 8
-            graph_samples, slot_node_ids = graph_processing.compute_sub_graphs(g, max_path_len, self.max_slots,
+            graph_samples, slot_node_ids = graph_processing.get_usage_samples(g, max_path_len, self.max_slots,
                                                                                self.max_node_seq_len, self.pad_token_id,
                                                                                self.slot_id, self.vocabulary)
 

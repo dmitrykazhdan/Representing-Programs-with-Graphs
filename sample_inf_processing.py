@@ -11,13 +11,13 @@ class SampleMetaInformation():
         self.fname = sample_fname
         self.node_id = node_id
         self.predicted_correctly = None
+        self.empty_type = "undefined"
         self.type = self.empty_type
         self.num_usages = None
         self.usage_rep = None
         self.true_label = None
         self.predicted_label = None
         self.seen_in_training = None
-        self.empty_type = "undefined"
 
 
     def compute_var_type(self):
