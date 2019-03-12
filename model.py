@@ -23,9 +23,9 @@ class model():
         self.learning_rate = 0.001
         self.ggnn_params = self.get_gnn_params()
         self.vocabulary = vocabulary
-        self.slot_id = len(vocabulary)
-        self.sos_token_id = len(vocabulary) + 1
-        self.voc_size = len(vocabulary) + 2
+        self.voc_size = len(vocabulary)
+        self.slot_id = self.vocabulary.get_id_or_unk('<SLOT>')
+        self.sos_token_id = self.vocabulary.get_id_or_unk('sos_token')
         self.pad_token_id = self.vocabulary.get_id_or_unk(self.vocabulary.get_pad())
         self.embedding_size = self.ggnn_params['hidden_size']
         self.ggnn_dropout = 1.0

@@ -26,6 +26,8 @@ def create_vocabulary_from_corpus(corpus_path, output_token_path=None):
                             all_sub_tokens += split_identifier_into_parts(n.contents)
 
     all_sub_tokens = list(set(all_sub_tokens))
+    all_sub_tokens.append('<SLOT>')
+    all_sub_tokens.append('sos_token')
     all_sub_tokens.sort()
 
     vocabulary = __create_voc_from_tokens(all_sub_tokens)
