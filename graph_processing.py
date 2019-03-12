@@ -32,13 +32,14 @@ def get_used_nodes_type():
 
 
 
-def compute_sub_graphs(graph, max_path_len, var_seq_length, node_seq_length, pad_token, slot_token, vocabulary, get_method_data=False):
+
+def get_usage_samples(graph, max_path_len, max_var_usages, max_node_len, pad_token, slot_token, vocabulary, get_method_data=False):
 
     successor_table = defaultdict(set)
     predecessor_table = defaultdict(set)
     edge_table = defaultdict(list)
     node_table = {}
-    sym_var_node_ids = []
+    sym_node_ids = []
     samples = []
     non_empty_sym_nodes = []
 
@@ -54,7 +55,7 @@ def compute_sub_graphs(graph, max_path_len, var_seq_length, node_seq_length, pad
         node_table[node.id] = node
 
         if node.type == parent_usage_node_type:
-            sym_var_node_ids.append(node.id)
+            sym_node_ids.append(node.id)
 
 
     for edge in graph.edge:
@@ -64,17 +65,17 @@ def compute_sub_graphs(graph, max_path_len, var_seq_length, node_seq_length, pad
 
 
 
-    for sym_var_node_id in sym_var_node_ids:
+    for sym_node_id in sym_node_ids:
 
-        successor_ids = successor_table[sym_var_node_id]
+        successor_ids = successor_table[sym_node_id]
 
-        var_identifier_node_ids = [node_id for node_id in successor_ids
+        identifier_node_ids = [node_id for node_id in successor_ids
                                 if node_table[node_id].type == FeatureNode.IDENTIFIER_TOKEN]
 
         decl_id_nodes = []
 
         # If doing method processing, need to also check for presence of the method declaration
-        if method_nodes:
+        if get_method_data:
             ast_elem_successors = [node_id for node_id in successor_ids
                                    if node_table[node_id].type==FeatureNode.AST_ELEMENT and node_table[node_id].contents=='METHOD']
 
@@ -86,15 +87,15 @@ def compute_sub_graphs(graph, max_path_len, var_seq_length, node_seq_length, pad
 
 
 
-        # Ensure variable has at least one usage
-        if len(var_identifier_node_ids) == 0 or len(var_identifier_node_ids) > var_seq_length: continue
+        if len(identifier_node_ids) == 0 or len(identifier_node_ids) > max_var_usages:
+            continue
 
 
         reachable_node_ids = []
-        successor_ids = var_identifier_node_ids
-        predecessor_ids = var_identifier_node_ids
+        successor_ids = identifier_node_ids
+        predecessor_ids = identifier_node_ids
 
-        for _ in range(timesteps):
+        for _ in range(max_path_len):
             reachable_node_ids += successor_ids
             reachable_node_ids += predecessor_ids
             successor_ids = list(set([elem for n_id in successor_ids for elem in successor_table[n_id]]))
@@ -112,15 +113,11 @@ def compute_sub_graphs(graph, max_path_len, var_seq_length, node_seq_length, pad
 
         sub_graph = (sub_nodes, sub_edges)
 
-        sample_data = compute_sample_data(sub_graph, var_identifier_node_ids, node_seq_length, pad_token, slot_token, vocabulary, decl_id_nodes)
+        sample_data = compute_sample_data(sub_graph, identifier_node_ids, max_node_len, pad_token, slot_token, vocabulary, decl_id_nodes)
         samples.append(sample_data)
-        non_empty_sym_nodes.append(sym_var_node_id)
+        non_empty_sym_nodes.append(sym_node_id)
 
     return samples, non_empty_sym_nodes
-
-
-
-
 
 
 
@@ -144,7 +141,6 @@ def compute_sample_data(sub_graph, identifier_token_node_ids, seq_length, pad_to
                 node_representation[0] = slot_token
             else:
                 node_representation = vocabulary.get_id_or_unk_multiple(split_identifier_into_parts(node.contents), seq_length, pad_token)
-
 
             node_representations.append(node_representation)
             id_to_index_map[node.id] = ind
@@ -176,17 +172,17 @@ def compute_sample_data(sub_graph, identifier_token_node_ids, seq_length, pad_to
             final_adj_lists[i] = np.zeros((0, 2), dtype=np.int32)
 
 
+    identifier_nodes = [id_to_index_map[node_id] for node_id in identifier_token_node_ids]
 
-    var_identifier_nodes = [id_to_index_map[node_id] for node_id in identifier_token_node_ids]
-
-    return (var_identifier_nodes, node_representations, final_adj_lists, \
+    return (identifier_nodes, node_representations, final_adj_lists, \
            num_incoming_edges_per_type, num_outgoing_edges_per_type)
 
 
 
 
 
-def get_method_bodies(graph, timesteps, var_seq_length, node_seq_length, pad_token, slot_token, vocabulary, kek):
+
+def get_method_body_samples(graph, node_seq_length, pad_token, slot_token, vocabulary):
 
     successor_table = defaultdict(set)
     predecessor_table = defaultdict(set)
@@ -196,13 +192,13 @@ def get_method_bodies(graph, timesteps, var_seq_length, node_seq_length, pad_tok
     samples = []
     non_empty_ast_nodes = []
 
+
     for node in graph.node:
 
         node_table[node.id] = node
 
         if node.type==FeatureNode.AST_ELEMENT and node.contents=='METHOD':
             ast_elem_node_ids.append(node.id)
-
 
 
     for edge in graph.edge:
@@ -217,12 +213,11 @@ def get_method_bodies(graph, timesteps, var_seq_length, node_seq_length, pad_tok
         successor_ids = successor_table[ast_elem_node_id]
         predecessor_ids = predecessor_table[ast_elem_node_id]
 
-        method_name = [node_id for node_id in successor_ids
+        method_name_ids = [node_id for node_id in successor_ids
                                 if node_table[node_id].type == FeatureNode.IDENTIFIER_TOKEN]
 
 
         sym_mth_parents = [node_id for node_id in predecessor_ids if node_table[node_id].type == FeatureNode.SYMBOL_MTH]
-        usage_node_ids = []
 
 
         if len(sym_mth_parents) > 0:
@@ -234,8 +229,7 @@ def get_method_bodies(graph, timesteps, var_seq_length, node_seq_length, pad_tok
         else:
             continue
 
-        method_name += usage_node_ids
-
+        method_name_ids += usage_node_ids
 
 
         reachable_node_ids = [ast_elem_node_id]
@@ -256,16 +250,14 @@ def get_method_bodies(graph, timesteps, var_seq_length, node_seq_length, pad_tok
                         if elem not in reachable_node_ids:
                             new_successors.append(elem)
 
-
             successor_ids = list(set(new_successors))
-
 
         reachable_node_ids = list(set(reachable_node_ids))
 
 
-        mth_ids = list(set(reachable_node_ids).intersection(set(method_name)))
+        method_name_ids = list(set(reachable_node_ids).intersection(set(method_name_ids)))
 
-        if len(mth_ids) == 0: continue
+        if len(method_name_ids) == 0: continue
 
         sub_nodes = [node_table[node_id] for node_id in reachable_node_ids]
 
@@ -274,7 +266,7 @@ def get_method_bodies(graph, timesteps, var_seq_length, node_seq_length, pad_tok
 
         sub_graph = (sub_nodes, sub_edges)
 
-        sample_data = compute_sample_data(sub_graph, mth_ids, node_seq_length, pad_token, slot_token, vocabulary)
+        sample_data = compute_sample_data(sub_graph, method_name_ids, node_seq_length, pad_token, slot_token, vocabulary)
         samples.append(sample_data)
         non_empty_ast_nodes.append(ast_elem_node_id)
 

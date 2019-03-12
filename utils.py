@@ -2,7 +2,7 @@ import os
 from graph_pb2 import Graph
 from dpu_utils.codeutils import split_identifier_into_parts
 from graph_pb2 import FeatureNode
-import graph_preprocessing
+import graph_processing
 from collections import defaultdict
 
 
@@ -86,7 +86,7 @@ def compute_corpus_stats(corpus_path):
 
                     for node in g.node:
 
-                        if node.type not in graph_preprocessing.get_used_nodes_type() \
+                        if node.type not in graph_processing.get_used_nodes_type() \
                                 and node.type != FeatureNode.SYMBOL_VAR:
                             continue
 

@@ -4,7 +4,7 @@ from dpu_utils.tfmodels import SparseGGNN
 from sample_inf_processing import SampleMetaInformation, CorpusMetaInformation
 import numpy as np
 import os
-import graph_preprocessing
+import graph_processing
 from random import shuffle
 from utils import compute_f1_score
 
@@ -56,7 +56,7 @@ class model():
     def get_gnn_params(self):
 
         gnn_params = {}
-        gnn_params["n_edge_types"] = len(graph_preprocessing.get_used_edges_type())
+        gnn_params["n_edge_types"] = len(graph_processing.get_used_edges_type())
         gnn_params["hidden_size"] = 64
         gnn_params["edge_features_size"] = {}
         gnn_params["add_backwards_edges"] = True
@@ -306,9 +306,9 @@ class model():
             g.ParseFromString(f.read())
 
             max_path_len = 8
-            graph_samples, slot_node_ids = graph_preprocessing.compute_sub_graphs(g, max_path_len, self.max_slots,
-                                                                                  self.max_node_seq_len, self.pad_token_id,
-                                                                                  self.slot_id, self.vocabulary)
+            graph_samples, slot_node_ids = graph_processing.compute_sub_graphs(g, max_path_len, self.max_slots,
+                                                                               self.max_node_seq_len, self.pad_token_id,
+                                                                               self.slot_id, self.vocabulary)
 
             samples, labels = [], []
 
