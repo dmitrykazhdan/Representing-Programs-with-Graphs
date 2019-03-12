@@ -1,0 +1,2 @@
+model_checkpoint_path: "/home/dk525/checkpoint/train.ckpt"
+all_model_checkpoint_paths: "/home/dk525/checkpoint/train.ckpt"
