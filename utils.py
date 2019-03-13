@@ -124,3 +124,37 @@ def compute_corpus_stats(corpus_path):
     print("Longest node length: ", max_node_len)
     print("Longest variable length: ", max_var_len)
     print("Largest variable usage: ", max_var_usage)
+
+
+
+
+def get_type_dists(types_fname):
+
+    content_arr = []
+
+    with open(types_fname, "r") as f:
+
+        for line in f:
+
+            line_contents = str.split(line.strip())
+
+            if len(line_contents) == 5:
+
+                line_contents = [line_contents[0], int(line_contents[1]), int(line_contents[3])]
+
+                if line_contents[1] + line_contents[2] > 100:
+                    content_arr.append(line_contents)
+
+
+        pred_acc = [[inf[0], 100 * inf[2] / (inf[2] + inf[1])] for inf in content_arr]
+        pred_acc = sorted(pred_acc, key=lambda  x: x[1], reverse=True)
+
+        names = [inf[0] for inf in pred_acc]
+        percentages = [inf[1] for inf in pred_acc]
+
+
+    return names, percentages
+
+
+
+
