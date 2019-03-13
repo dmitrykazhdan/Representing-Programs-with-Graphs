@@ -1,7 +1,7 @@
 from graph_pb2 import Graph
 from graph_pb2 import FeatureNode
 from collections import defaultdict
-from utils import compute_successors_and_predecessors, compute_node_table
+from utils.utils import compute_successors_and_predecessors, compute_node_table
 
 
 class SampleMetaInformation():
@@ -81,10 +81,10 @@ class CorpusMetaInformation():
                 sample_inf.compute_var_type()
 
                 if sample_inf.predicted_correctly:
-                    corr_usage_classes[sample_inf.usages] += 1
+                    corr_usage_classes[sample_inf.num_usages] += 1
                     corr_type_classes[sample_inf.type] += 1
                 else:
-                    incorr_usage_classes[sample_inf.usages] += 1
+                    incorr_usage_classes[sample_inf.num_usages] += 1
                     incorr_type_classes[sample_inf.type] += 1
 
 

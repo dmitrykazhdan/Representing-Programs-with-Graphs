@@ -2,32 +2,7 @@ from graph_pb2 import FeatureNode, FeatureEdge
 from collections import defaultdict
 import numpy as np
 from dpu_utils.codeutils import split_identifier_into_parts
-
-
-
-def get_used_edges_type():
-
-    used_edge_types = [FeatureEdge.NEXT_TOKEN, FeatureEdge.AST_CHILD, FeatureEdge.LAST_WRITE,
-                       FeatureEdge.LAST_USE, FeatureEdge.COMPUTED_FROM, FeatureEdge.RETURNS_TO,
-                       FeatureEdge.FORMAL_ARG_NAME, FeatureEdge.GUARDED_BY, FeatureEdge.GUARDED_BY_NEGATION,
-                       FeatureEdge.LAST_LEXICAL_USE,
-                       FeatureEdge.ASSIGNABLE_TO, FeatureEdge.ASSOCIATED_TOKEN,
-                       FeatureEdge.HAS_TYPE, FeatureEdge.ASSOCIATED_SYMBOL]
-
-    return used_edge_types
-
-
-
-def get_used_nodes_type():
-
-    used_node_types = [FeatureNode.TOKEN, FeatureNode.AST_ELEMENT, FeatureNode.IDENTIFIER_TOKEN,
-                       FeatureNode.FAKE_AST,
-                       FeatureNode.SYMBOL_TYP, FeatureNode.COMMENT_LINE,
-                       FeatureNode.TYPE]
-
-    return used_node_types
-
-
+from data_processing.graph_features import  get_used_edges_type, get_used_nodes_type
 
 
 def get_usage_samples(graph, max_path_len, max_var_usages, max_node_len, pad_token, slot_token, vocabulary, get_method_data=False):

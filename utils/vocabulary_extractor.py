@@ -3,13 +3,13 @@ from graph_pb2 import Graph
 from dpu_utils.codeutils import split_identifier_into_parts
 from dpu_utils.mlutils import Vocabulary
 import pickle
-import graph_processing
+from data_processing.graph_features import  get_used_nodes_type
 
 
 def create_vocabulary_from_corpus(corpus_path, output_token_path=None):
 
     all_sub_tokens = []
-    node_types = graph_processing.get_used_nodes_type()
+    node_types = get_used_nodes_type()
 
     # Extract all subtokens from all nodes of the appropriate type using all graphs in the corpus
     for dirpath, dirs, files in os.walk(corpus_path):

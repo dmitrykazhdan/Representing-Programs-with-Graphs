@@ -1,16 +1,16 @@
 import tensorflow as tf
 from graph_pb2 import Graph
 from dpu_utils.tfmodels import SparseGGNN
-from sample_inf_processing import SampleMetaInformation, CorpusMetaInformation
+from data_processing.sample_inf_processing import SampleMetaInformation, CorpusMetaInformation
 import numpy as np
 import os
-import graph_processing
+from data_processing import graph_processing
+from data_processing.graph_features import get_used_edges_type
 from random import shuffle
-from utils import compute_f1_score
+from utils.utils import compute_f1_score
 
 
-
-class model():
+class Model:
 
     def __init__(self, mode, vocabulary):
 
@@ -56,7 +56,7 @@ class model():
     def get_gnn_params(self):
 
         gnn_params = {}
-        gnn_params["n_edge_types"] = len(graph_processing.get_used_edges_type())
+        gnn_params["n_edge_types"] = len(get_used_edges_type())
         gnn_params["hidden_size"] = 64
         gnn_params["edge_features_size"] = {}
         gnn_params["add_backwards_edges"] = True

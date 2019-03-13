@@ -1,5 +1,5 @@
-import vocabulary_extractor
-from model import model
+from utils import vocabulary_extractor
+from model.model import Model
 import yaml
 
 def detailed_inference():
@@ -14,7 +14,7 @@ def detailed_inference():
 
   # Run inference
   vocabulary = vocabulary_extractor.load_vocabulary(token_path)
-  m = model(mode='infer', vocabulary=vocabulary)
+  m = Model(mode='infer', vocabulary=vocabulary)
   m.metrics_on_seen_vars(train_path, test_path, checkpoint_path=checkpoint_path)
 
   print("Inference ran successfully...")
