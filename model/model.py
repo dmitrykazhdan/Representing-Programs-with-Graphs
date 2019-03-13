@@ -12,7 +12,7 @@ from utils.utils import compute_f1_score
 
 class Model:
 
-    def __init__(self, mode, vocabulary):
+    def __init__(self, mode, task_id, vocabulary):
 
         # Initialize parameter values
         self.max_node_seq_len = 32                          # Maximum number of node subtokens
@@ -29,6 +29,7 @@ class Model:
         self.pad_token_id = self.vocabulary.get_id_or_unk(self.vocabulary.get_pad())
         self.embedding_size = self.ggnn_params['hidden_size']
         self.ggnn_dropout = 1.0
+        self.task_type = task_id
 
         if mode != 'train' and mode != 'infer':
             raise ValueError("Invalid mode. Please specify \'train\' or \'infer\'...")
@@ -306,9 +307,27 @@ class Model:
             g.ParseFromString(f.read())
 
             max_path_len = 8
-            graph_samples, slot_node_ids = graph_processing.get_usage_samples(g, max_path_len, self.max_slots,
+
+            if self.task_type == 0:
+                graph_samples, slot_node_ids = graph_processing.get_usage_samples(g, max_path_len, self.max_slots,
                                                                                self.max_node_seq_len, self.pad_token_id,
                                                                                self.slot_id, self.vocabulary)
+
+            elif self.task_type == 1:
+                graph_samples, slot_node_ids = graph_processing.get_usage_samples(g, max_path_len, self.max_slots,
+                                                                                  self.max_node_seq_len,
+                                                                                  self.pad_token_id,
+                                                                                  self.slot_id, self.vocabulary, True)
+
+            elif self.task_type == 2:
+                graph_samples, slot_node_ids = graph_processing.get_method_body_samples(g,
+                                                                                  self.max_node_seq_len,
+                                                                                  self.pad_token_id,
+                                                                                  self.slot_id, self.vocabulary)
+
+            else:
+                raise ValueError("Invalid task id...")
+
 
             samples, labels = [], []
 
