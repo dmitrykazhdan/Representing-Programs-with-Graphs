@@ -506,9 +506,11 @@ class Model:
     def train(self, train_path, val_path, n_epochs, checkpoint_path):
 
         train_samples, train_labels = self.get_samples(train_path)
-        val_samples, val_labels, meta_inf = self.get_samples_with_metainf(val_path)
+        print("Extracted training samples... ", len(train_samples))
 
-        print("Extracted samples... ", len(train_samples))
+        val_samples, val_labels, meta_inf = self.get_samples_with_metainf(val_path)
+        print("Extracted validation samples... ", len(val_samples))
+
 
         with self.graph.as_default():
 
@@ -618,7 +620,7 @@ class Model:
 
         accuracy = n_correct / len(test_labels) * 100
 
-        f1 /= len(predicted_names)
+        f1 /= len(predicted_names) * 100
 
         print("Absolute accuracy: ", accuracy)
         print("F1 score: ", f1)
@@ -665,10 +667,8 @@ class Model:
                             if sample_infs[i].seen_in_training ]
 
 
+        print("Metrics on seen variables: ")
         accuracy, f1, _ = self.compute_metrics(seen_predictions, seen_test_labels, seen_sample_infs)
-
-        print("Seen Absolute accuracy: ", accuracy)
-        print("Seen F1 score: ", f1)
 
         meta_corpus = CorpusMetaInformation(sample_infs)
         meta_corpus.process_sample_inf()

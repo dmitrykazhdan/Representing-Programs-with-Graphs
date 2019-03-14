@@ -23,9 +23,5 @@ def detailed_inference(task_id):
   print("Inference ran successfully...")
 
 
-
-args = sys.argv[1:]
-task_id = parse_input_args(args)
-
-detailed_inference(task_id)
+detailed_inference(0)
 

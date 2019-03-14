@@ -97,7 +97,7 @@ class CorpusMetaInformation():
             print("")
 
 
-        
+
         all_type_keys = list(set(incorr_type_classes.keys()).union(corr_type_classes.keys()))
 
         for type_key in all_type_keys:
