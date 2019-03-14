@@ -12,7 +12,7 @@ Furthermore, this project includes functionality for applying the _VarNaming_ mo
 ### Prerequisites
 
 Ensure you have the following packages installed 
-(these can all be installed with pip3) :
+(these can all be installed with pip3):
 
 - numpy
 - pyYAML
@@ -92,7 +92,7 @@ In order to use the model for inference:
 
 - Prepare the test dataset directory
 as described in the _Dataset Parsing_ section above
-- Specify its paths in the _config.yml_ file:
+- Specify it's path in the _config.yml_ file:
 ```python
 test_path: "path-to-test-data"
 ```
@@ -113,12 +113,13 @@ python3 ./infer.py
 
 ### Detailed inference
 
-In order to use the model for inference, as well as extra sample information
-(such as usage information and type information):
+In order to use the model for inference, 
+as well as for computing extra sample information
+(including variable usage information and type information):
 
 - Prepare the test dataset directory
 as described in the _Dataset Parsing_ section above
-- Specify its paths in the _config.yml_ file:
+- Specify it's path in the _config.yml_ file:
 ```python
 test_path: "path-to-test-data"
 ```
@@ -138,16 +139,16 @@ python3 ./detailed_infer.py
 
 
 
-### Task Selection
+### MethodNaming Task Selection
 The type of task you want the model to run can be specified by passing 
 appropriate input arguments as follows:
 
 - To run training/inference using the VarNaming task (computing variable usage information)
 no input arguments are required
 - To run training/inference using the MethodNaming usage task (computing method usage information)
-add the string "_mth_usage_" as an input argument when calling the script
+add the string "_mth_usage_" as an input argument when calling the scripts
 - To run training/inference using the MethodNaming definition task (computing method body information)
-add the string "_mth_def_" as an input argument when calling the script
+add the string "_mth_def_" as an input argument when calling the scripts
 
 For example, in order to train the model for the MethodNaming task using 
 definition information, the script call will be the following:
@@ -167,6 +168,7 @@ python3 ./infer.py mth_usage
 The _saved_models_ directory includes pre-trained models, which can
 be use to run inference directly, without any training. 
 The paths to the saved checkpoint and vocabulary files need to be specified
+in the _config.yml_ file 
 in the usual way, as described in the "Inference" section above.
 
 
@@ -179,8 +181,8 @@ in the usual way, as described in the "Inference" section above.
 - model: includes the implementation of the VarNaming model
 - saved_models: pre-trained models for the VarNaming and MethodNaming tasks
 - utils: auxiliary code implementing various functionality, such as input 
-argument parsing or vocabulary extraction
+argument parsing and vocabulary extraction
 - train.py, infer.py, detailed_infer.py: files for running training and inference
-of the model, as described in the previous sections
+using the model, as described in the previous sections
 - config.yml: configuration file storing string properties
-- graph_pb2.py: file used for parsing .proto graphs
+- graph_pb2.py: used for parsing .proto sample files
