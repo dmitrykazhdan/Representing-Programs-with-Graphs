@@ -1,7 +1,7 @@
 # Representing Programs with Graphs
 
-This project re-implements the _VarNaming_ task model described in the _Learning to Represent Programs with Graphs_ paper 
-(which can be found [here](https://ml4code.github.io/publications/allamanis2018learning/), along with other relevant resources), 
+This project re-implements the _VarNaming_ task model described in the  paper 
+[_Learning to Represent Programs with Graphs_](https://ml4code.github.io/publications/allamanis2018learning/), 
 which can predict the name of a variable based on it's usage.
 
 Furthermore, this project includes functionality for applying the _VarNaming_ model to the _MethodNaming_ task 
@@ -11,12 +11,14 @@ Furthermore, this project includes functionality for applying the _VarNaming_ mo
 ## Setup 
 ### Prerequisites
 
-Ensure you have the following packages installed:
+Ensure you have the following packages installed 
+(these can all be installed with pip3) :
 
 - numpy
 - pyYAML
-- tensorflow-gpu
+- tensorflow-gpu (or tensorflow)
 - dpu_utils
+- protobuf
 
 
 ### Dataset Format
@@ -33,7 +35,7 @@ extractor available [here](https://github.com/acr31/features-javac).
 Once you have obtained a corpus of .proto graph files, it is possible
 to use the _corpus_extractor.py_ file located in the _data_processing_ folder.
 
-- Create empty directories for training, validation and testing datasets
+- Create empty directories for training, validation and test datasets
 - Specify their paths, as well as the corpus path, in the
 _config.yml_ file:
 ```python
@@ -42,10 +44,11 @@ train_path: "path-to-train-data-output"
 val_path: "path-to-val-data-output"
 test_path: "path-to-test-data-output"
 ```
-- Run _corpus_extractor.py_ 
+- Navigate into the repository directory
+- Run _corpus_extractor.py_:
 
 ```python
-python3 path-to-repository/data_processing/corpus_extractor.py
+python3 ./data_processing/corpus_extractor.py
 ```
 
 This will extract all samples from the corpus, randomly shuffle them,
@@ -67,17 +70,19 @@ as described in the _Dataset Parsing_ section above
 train_path: "path-to-train-data"
 val_path: "path-to-val-data"
 ```
-- Specify the token path 
+- Specify the token file path 
 (where the extracted token vocabulary will be saved)
-and the checkpoint path (where the model checkpoint will be saved) in the _config.yml_ file:
+and the checkpoint folder path (where the model checkpoint will be saved) in the _config.yml_ file 
+(note the fixed specification of the 'train.ckpt' file):
 ```python
 checkpoint_path: "path-to-checkpoint-folder/train.ckpt"
-token_path: "path-to-vocabulary-file/tokens.txt"
+token_path: "path-to-vocabulary-txt-file"
 ```
-- Run _train.py_
+- Navigate into the repository directory
+- Run _train.py_:
 
 ```python
-python3 path-to-repository/train.py
+python3 ./train.py
 ```
 
 
@@ -91,21 +96,22 @@ as described in the _Dataset Parsing_ section above
 ```python
 test_path: "path-to-test-data"
 ```
-- Specify the token path 
+- Specify the token file path 
 (where the extracted token vocabulary will be loaded from)
 and the checkpoint path (where the trained model will be loaded from) in the _config.yml_ file:
 ```python
 checkpoint_path: "path-to-checkpoint-folder/train.ckpt"
-token_path: "path-to-vocabulary-file/tokens.txt"
+token_path: "path-to-vocabulary-txt-file"
 ```
-- Run _infer.py_
+- Navigate into the repository directory
+- Run _infer.py_:
 
 ```python
-python3 path-to-repository/infer.py
+python3 ./infer.py
 ```
 
 
-### In-depth inference
+### Detailed inference
 
 In order to use the model for inference, as well as extra sample information
 (such as usage information and type information):
@@ -116,38 +122,65 @@ as described in the _Dataset Parsing_ section above
 ```python
 test_path: "path-to-test-data"
 ```
-- Specify the token path 
+- Specify the token file path 
 (where the extracted token vocabulary will be loaded from)
 and the checkpoint path (where the trained model will be loaded from) in the _config.yml_ file:
 ```python
 checkpoint_path: "path-to-checkpoint-folder/train.ckpt"
-token_path: "path-to-vocabulary-file/tokens.txt"
+token_path: "path-to-vocabulary-txt-file"
 ```
+- Navigate into the repository directory
 - Run _detailed_infer.py_
 
 ```python
-python3 path-to-repository/detailed_infer.py
+python3 ./detailed_infer.py
 ```
-
-For more details on the extra information computed, see the report 
-available [here](link_TBC)
 
 
 
 ### Task Selection
-The type of task you want the model to run with can be specified by passing 
+The type of task you want the model to run can be specified by passing 
 appropriate input arguments as follows:
 
 - To run training/inference using the VarNaming task (computing variable usage information)
 no input arguments are required
 - To run training/inference using the MethodNaming usage task (computing method usage information)
-add a _mth_usage_ argument when calling the script
+add the string "_mth_usage_" as an input argument when calling the script
 - To run training/inference using the MethodNaming definition task (computing method body information)
-add a _mth_def_ argument when calling the script
+add the string "_mth_def_" as an input argument when calling the script
 
 For example, in order to train the model for the MethodNaming task using 
 definition information, the script call will be the following:
 
 ```python
-python3 path-to-repository/train.py mth_definition
+python3 ./train.py mth_def
 ```
+
+Similarly, for running inference using the MethodNaming definition task,
+the script call will be the following:
+```python
+python3 ./infer.py mth_usage
+```
+
+### Loading Saved Models
+
+The _saved_models_ directory includes pre-trained models, which can
+be use to run inference directly, without any training. 
+The paths to the saved checkpoint and vocabulary files need to be specified
+in the usual way, as described in the "Inference" section above.
+
+
+
+
+
+## Files/Directories
+
+- data_processing: includes code for processing graph samples and corpus files
+- model: includes the implementation of the VarNaming model
+- saved_models: pre-trained models for the VarNaming and MethodNaming tasks
+- utils: auxiliary code implementing various functionality, such as input 
+argument parsing or vocabulary extraction
+- train.py, infer.py, detailed_infer.py: files for running training and inference
+of the model, as described in the previous sections
+- config.yml: configuration file storing string properties
+- graph_pb2.py: file used for parsing .proto graphs
