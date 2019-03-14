@@ -40,7 +40,7 @@ class SampleMetaInformation():
 
     def compute_var_usages(self):
 
-        if self.num_usages != None: return self.num_usages
+        if self.num_usages is not None: return self.num_usages
 
         with open(self.fname, "rb") as f:
 
@@ -86,6 +86,23 @@ class CorpusMetaInformation():
                 else:
                     incorr_usage_classes[sample_inf.num_usages] += 1
                     incorr_type_classes[sample_inf.type] += 1
+
+
+
+        # Print the computed information:
+        all_usage_keys = list(set(incorr_usage_classes.keys()).union(corr_usage_classes.keys()))
+
+        for usage_key in all_usage_keys:
+            print(str(usage_key) + " usages: ", incorr_usage_classes[usage_key], " (incorrect) ", corr_usage_classes[usage_key], " (correct)")
+            print("")
+
+
+        
+        all_type_keys = list(set(incorr_type_classes.keys()).union(corr_type_classes.keys()))
+
+        for type_key in all_type_keys:
+            print(str(type_key), incorr_type_classes[type_key], " (incorrect) ", corr_type_classes[type_key], " (correct)")
+            print("")
 
 
 

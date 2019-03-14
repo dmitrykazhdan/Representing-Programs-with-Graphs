@@ -2,7 +2,7 @@ import os
 from graph_pb2 import Graph
 from dpu_utils.codeutils import split_identifier_into_parts
 from graph_pb2 import FeatureNode
-from data_processing.graph_features import  get_used_nodes_type
+from data_processing.graph_features import get_used_nodes_type
 from collections import defaultdict
 
 
