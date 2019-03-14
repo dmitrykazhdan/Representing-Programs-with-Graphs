@@ -5,7 +5,7 @@ This project re-implements the _VarNaming_ task model described in the _Learning
 which can predict the name of a variable based on it's usage.
 
 Furthermore, this project includes functionality for applying the _VarNaming_ model to the _MethodNaming_ task 
-(predicting the name of a method from it's usage and/or definition). 
+(predicting the name of a method from it's usage or definition). 
 
 
 ## Setup 
@@ -34,8 +34,14 @@ Once you have obtained a corpus of .proto graph files, it is possible
 to use the _corpus_extractor.py_ file located in the _data_processing_ folder.
 
 - Create empty directories for training, validation and testing datasets
-- Specify their paths, together well as the corpus path, in the
-_config.yml_ file
+- Specify their paths, as well as the corpus path, in the
+_config.yml_ file:
+```python
+corpus_path: "path-to-corpus"
+train_path: "path-to-train-data-output"
+val_path: "path-to-val-data-output"
+test_path: "path-to-test-data-output"
+```
 - Run _corpus_extractor.py_ 
 
 ```python
@@ -44,7 +50,7 @@ python3 path-to-repository/data_processing/corpus_extractor.py
 
 This will extract all samples from the corpus, randomly shuffle them,
 split them into train/val/test partitions, and copy these partitions into the specified
-folders.
+train, val and test folders.
 
 
 
@@ -54,10 +60,20 @@ folders.
 
 In order to train the model:
 
-- Prepare training and validation dataset directories
-- Specify their paths in the _config.yml_ file
-- Specify paths where the extracted token vocabulary
-and model checkpoints will be saved in the _config.yml_ file
+- Prepare training and validation dataset directories, 
+as described in the _Dataset Parsing_ section above
+- Specify their paths in the _config.yml_ file:
+```python
+train_path: "path-to-train-data"
+val_path: "path-to-val-data"
+```
+- Specify the token path 
+(where the extracted token vocabulary will be saved)
+and the checkpoint path (where the model checkpoint will be saved) in the _config.yml_ file:
+```python
+checkpoint_path: "path-to-checkpoint-folder/train.ckpt"
+token_path: "path-to-vocabulary-file/tokens.txt"
+```
 - Run _train.py_
 
 ```python
@@ -70,9 +86,18 @@ python3 path-to-repository/train.py
 In order to use the model for inference:
 
 - Prepare the test dataset directory
-- Specify its paths in the _config.yml_ file
-- Specify paths to the extracted token vocabulary
-and model checkpoints saved during training in the _config.yml_ file
+as described in the _Dataset Parsing_ section above
+- Specify its paths in the _config.yml_ file:
+```python
+test_path: "path-to-test-data"
+```
+- Specify the token path 
+(where the extracted token vocabulary will be loaded from)
+and the checkpoint path (where the trained model will be loaded from) in the _config.yml_ file:
+```python
+checkpoint_path: "path-to-checkpoint-folder/train.ckpt"
+token_path: "path-to-vocabulary-file/tokens.txt"
+```
 - Run _infer.py_
 
 ```python
@@ -86,9 +111,18 @@ In order to use the model for inference, as well as extra sample information
 (such as usage information and type information):
 
 - Prepare the test dataset directory
-- Specify its paths in the _config.yml_ file
-- Specify paths to the extracted token vocabulary
-and model checkpoints saved during training in the _config.yml_ file
+as described in the _Dataset Parsing_ section above
+- Specify its paths in the _config.yml_ file:
+```python
+test_path: "path-to-test-data"
+```
+- Specify the token path 
+(where the extracted token vocabulary will be loaded from)
+and the checkpoint path (where the trained model will be loaded from) in the _config.yml_ file:
+```python
+checkpoint_path: "path-to-checkpoint-folder/train.ckpt"
+token_path: "path-to-vocabulary-file/tokens.txt"
+```
 - Run _detailed_infer.py_
 
 ```python
