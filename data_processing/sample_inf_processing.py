@@ -72,7 +72,7 @@ class CorpusMetaInformation():
         incorr_type_classes, corr_type_classes = defaultdict(int), defaultdict(int)
 
 
-        # Compute usage and type information
+        # Compute and print usage and type information from entire corpus
         for sample_inf in self.sample_meta_infs:
 
             if sample_inf.seen_in_training:

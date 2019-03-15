@@ -5,7 +5,19 @@ from dpu_utils.codeutils import split_identifier_into_parts
 from data_processing.graph_features import  get_used_edges_type, get_used_nodes_type
 
 
-def get_usage_samples(graph, max_path_len, max_var_usages, max_node_len, pad_token, slot_token, vocabulary, get_method_data=False):
+'''
+Extract usage information from a given graph
+
+:graph: input graph sample
+:max_path_len: number of GGNN timesteps (used to remove nodes/edges unreachable in this amount of timesteps from <SLOT> nodes)
+:max_usages: maximum number of method/variable <SLOT> tokes
+:node_rep_len: length of node representation
+:pad_token: vocabulary pad token
+:slot_token: vocabulary slot token
+:vocabulary: corpus token vocabulary
+:get_method_data: whether to compute variable usage data (get_method_data=False), or method usage data (get_method_data=True)
+'''
+def get_usage_samples(graph, max_path_len, max_usages, node_rep_len, pad_token, slot_token, vocabulary, get_method_data=False):
 
     successor_table = defaultdict(set)
     predecessor_table = defaultdict(set)
@@ -59,10 +71,11 @@ def get_usage_samples(graph, max_path_len, max_var_usages, max_node_len, pad_tok
 
 
 
-        if len(identifier_node_ids) == 0 or len(identifier_node_ids) > max_var_usages:
+        if len(identifier_node_ids) == 0 or len(identifier_node_ids) > max_usages:
             continue
 
 
+        # Compute reachable subgraph
         reachable_node_ids = []
         successor_ids = identifier_node_ids
         predecessor_ids = identifier_node_ids
@@ -85,7 +98,7 @@ def get_usage_samples(graph, max_path_len, max_var_usages, max_node_len, pad_tok
 
         sub_graph = (sub_nodes, sub_edges)
 
-        sample_data = compute_sample_data(sub_graph, identifier_node_ids, max_node_len, pad_token, slot_token, vocabulary, decl_id_nodes)
+        sample_data = compute_sample_data(sub_graph, identifier_node_ids, node_rep_len, pad_token, slot_token, vocabulary, decl_id_nodes)
         samples.append(sample_data)
         non_empty_sym_nodes.append(sym_node_id)
 
@@ -93,7 +106,19 @@ def get_usage_samples(graph, max_path_len, max_var_usages, max_node_len, pad_tok
 
 
 
+'''
+Used to create input samples from a given graph 
 
+:sub_graph: input graph
+:identifier_token_node_ids: usage/declaration node ids
+:seq_length: length of node representation
+:pad_token: vocabulary pad token
+:slot_token: vocabulary slot token
+:vocabulary: corpus token vocabulary
+:exception_node_ids: list of nodes that should be masked as <SLOT> tokens, but should not be used
+in the consequent average usage representation computation (needed to mask possible method declaration nodes when computing node
+usage information)
+'''
 def compute_sample_data(sub_graph, identifier_token_node_ids, seq_length, pad_token, slot_token, vocabulary, exception_node_ids = []):
 
     used_node_types = get_used_nodes_type()
@@ -152,7 +177,15 @@ def compute_sample_data(sub_graph, identifier_token_node_ids, seq_length, pad_to
 
 
 
+'''
+Extract method body information from a given graph
 
+:graph: input graph sample
+:node_seq_length: length of node representation
+:pad_token: vocabulary pad token
+:slot_token: vocabulary slot token
+:vocabulary: corpus token vocabulary
+'''
 
 def get_method_body_samples(graph, node_seq_length, pad_token, slot_token, vocabulary):
 

@@ -308,6 +308,8 @@ class Model:
 
             max_path_len = 8
 
+
+            # Select sample parsing strategy depending on the specified model task
             if self.task_type == 0:
                 graph_samples, slot_node_ids = graph_processing.get_usage_samples(g, max_path_len, self.max_slots,
                                                                                self.max_node_seq_len, self.pad_token_id,
@@ -590,7 +592,7 @@ class Model:
 
 
 
-
+    # Compute F1 and accuracy scores
     def compute_metrics(self, predicted_names, test_labels, sample_infs, print_labels=False):
 
         n_correct, n_nonzero, f1 = 0, 0, 0
@@ -631,7 +633,8 @@ class Model:
 
 
 
-
+    # Compute F1 and accuracy scores, as well as usage and type information
+    # using the variables seen during training
     def metrics_on_seen_vars(self, train_path, test_path, checkpoint_path):
 
         train_samples, train_labels = self.get_samples(train_path)

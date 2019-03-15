@@ -166,7 +166,7 @@ python3 ./infer.py mth_usage
 ### Loading Saved Models
 
 The _saved_models_ directory includes pre-trained models, which can
-be use to run inference directly, without any training. 
+be used to run inference directly, without any training. 
 The paths to the saved checkpoint and vocabulary files need to be specified
 in the _config.yml_ file 
 in the usual way, as described in the "Inference" section above.

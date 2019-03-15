@@ -127,7 +127,7 @@ def compute_corpus_stats(corpus_path):
 
 
 
-
+# Used for parsing type information from a type file
 def get_type_dists(types_fname):
 
     content_arr = []
