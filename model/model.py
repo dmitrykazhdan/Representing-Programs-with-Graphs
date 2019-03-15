@@ -622,7 +622,7 @@ class Model:
 
         accuracy = n_correct / len(test_labels) * 100
 
-        f1 /= len(predicted_names) * 100
+        f1 = f1 * 100 / len(predicted_names)
 
         print("Absolute accuracy: ", accuracy)
         print("F1 score: ", f1)

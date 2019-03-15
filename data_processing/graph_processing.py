@@ -11,7 +11,7 @@ Extract usage information from a given graph
 :graph: input graph sample
 :max_path_len: number of GGNN timesteps (used to remove nodes/edges unreachable in this amount of timesteps from <SLOT> nodes)
 :max_usages: maximum number of method/variable <SLOT> tokes
-:node_rep_len: length of node representation
+:node_rep_len: maximum number of subtokens in node representation
 :pad_token: vocabulary pad token
 :slot_token: vocabulary slot token
 :vocabulary: corpus token vocabulary
@@ -75,7 +75,7 @@ def get_usage_samples(graph, max_path_len, max_usages, node_rep_len, pad_token, 
             continue
 
 
-        # Compute reachable subgraph
+        # Compute subgraph of nodes/edges reachable from identifier nodes in the given amount of path steps
         reachable_node_ids = []
         successor_ids = identifier_node_ids
         predecessor_ids = identifier_node_ids
@@ -115,9 +115,9 @@ Used to create input samples from a given graph
 :pad_token: vocabulary pad token
 :slot_token: vocabulary slot token
 :vocabulary: corpus token vocabulary
-:exception_node_ids: list of nodes that should be masked as <SLOT> tokens, but should not be used
-in the consequent average usage representation computation (needed to mask possible method declaration nodes when computing node
-usage information)
+:exception_node_ids: when computing method usage information, there is a chance that a method declaration node is reachable 
+from one of the usage nodes. This node should also be masked with a <SLOT> token, but should not be used in consequent decoding steps
+(because it is not a usage node, but a declaration node), thus it is marked as an exception
 '''
 def compute_sample_data(sub_graph, identifier_token_node_ids, seq_length, pad_token, slot_token, vocabulary, exception_node_ids = []):
 
@@ -132,7 +132,6 @@ def compute_sample_data(sub_graph, identifier_token_node_ids, seq_length, pad_to
 
     for node in sub_nodes:
         if node.type in used_node_types:
-
             if node.id in exception_node_ids:
                 node_representation = [pad_token for _ in range(seq_length)]
                 node_representation[0] = slot_token
@@ -181,7 +180,7 @@ def compute_sample_data(sub_graph, identifier_token_node_ids, seq_length, pad_to
 Extract method body information from a given graph
 
 :graph: input graph sample
-:node_seq_length: length of node representation
+:node_seq_length: maximum number of subtokens in node representation
 :pad_token: vocabulary pad token
 :slot_token: vocabulary slot token
 :vocabulary: corpus token vocabulary
@@ -236,7 +235,8 @@ def get_method_body_samples(graph, node_seq_length, pad_token, slot_token, vocab
 
         method_name_ids += usage_node_ids
 
-
+        # Compute all nodes reachable from an AST_ELEMENT METHOD node through any edges except node token edges
+        # (hence stop computing successors when an IDENTIFIER_TOKEN/TOKEN node is reached)
         reachable_node_ids = [ast_elem_node_id]
         successor_ids = list(set([elem for elem in successor_table[ast_elem_node_id]]))
 
@@ -260,6 +260,7 @@ def get_method_body_samples(graph, node_seq_length, pad_token, slot_token, vocab
         reachable_node_ids = list(set(reachable_node_ids))
 
 
+        # Compute all reachable nodes that include the method name
         method_name_ids = list(set(reachable_node_ids).intersection(set(method_name_ids)))
 
         if len(method_name_ids) == 0: continue
