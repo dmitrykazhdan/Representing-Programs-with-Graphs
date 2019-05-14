@@ -7,6 +7,10 @@ which can predict the name of a variable based on it's usage.
 Furthermore, this project includes functionality for applying the _VarNaming_ model to the _MethodNaming_ task 
 (predicting the name of a method from it's usage or definition). 
 
+## Citing
+
+If you use the provided implementation in your research, please cite the [_Learning to Represent Programs with Graphs_](https://ml4code.github.io/publications/allamanis2018learning/) paper, and include a link to this repository as a footnote.
+
 
 ## Setup 
 ### Prerequisites
